@@ -18,17 +18,19 @@ REPLACEMENTS = {
 
 
 def get_verb_form_dicts():
-    path_to_dict = os.path.join(VOCAB_DIR, "verb-form-vocab.txt")
     encode, decode = {}, {}
-    with open(path_to_dict, encoding="utf-8") as f:
-        for line in f:
-            words, tags = line.split(":")
-            word1, word2 = words.split("_")
-            tag1, tag2 = tags.split("_")
-            decode_key = f"{word1}_{tag1}_{tag2.strip()}"
-            if decode_key not in decode:
-                encode[words] = tags
-                decode[decode_key] = word2
+    # only work as a placeholder. These codes are no use when processing Chinese.
+    
+    # path_to_dict = os.path.join(VOCAB_DIR, "verb-form-vocab.txt")
+    # with open(path_to_dict, encoding="utf-8") as f:
+    #     for line in f:
+    #         words, tags = line.split(":")
+    #         word1, word2 = words.split("_")
+    #         tag1, tag2 = tags.split("_")
+    #         decode_key = f"{word1}_{tag1}_{tag2.strip()}"
+    #         if decode_key not in decode:
+    #             encode[words] = tags
+    #             decode[decode_key] = word2
     return encode, decode
 
 

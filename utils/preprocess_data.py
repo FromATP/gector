@@ -176,7 +176,8 @@ def apply_transformation(source_token, target_token):
         transform = check_split(source_token, target_tokens)
         if transform:
             return transform
-    checks = [check_equal, check_casetype, check_verb, check_plural]
+    # only need to check equalty when processing Chinese
+    checks = [check_equal]
     for check in checks:
         transform = check(source_token, target_token)
         if transform:

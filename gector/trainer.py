@@ -485,8 +485,24 @@ class Trainer(TrainerBase):
         batches_this_epoch = 0
         val_loss = 0
         for batch_group in val_generator_tqdm:
+            try:
+                loss = self.batch_loss(batch_group, for_training=False)
+            except RuntimeError as e:
+                print(e)
+                for x in batch_group:
+                    all_words = [len(y['words']) for y in x['metadata']]
+                    print(f"Total sents: {len(all_words)}. "
+                          f"Min {min(all_words)}. Max {max(all_words)}")
+                    for elem in ['labels', 'd_tags']:
+                        tt = x[elem] 
+                        print(
+                            f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
+                    for elem in ["bert", "mask", "bert-offsets"]:
+                        tt = x['tokens'][elem]
+                        print(
+                            f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
+                raise e
 
-            loss = self.batch_loss(batch_group, for_training=False)
             if loss is not None:
                 # You shouldn't necessarily have to compute a loss for validation, so we allow for
                 # `loss` to be None.  We need to be careful, though - `batches_this_epoch` is
@@ -520,6 +536,9 @@ class Trainer(TrainerBase):
                 "a different serialization directory or delete the existing serialization "
                 "directory?"
             )
+
+        print('Get into training process.')
+        logger.info('Training...')
 
         training_util.enable_gradient_clipping(self.model, self._grad_clipping)
 

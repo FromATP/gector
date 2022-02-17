@@ -211,11 +211,11 @@ if __name__ == '__main__':
                         type=int,
                         help='The max sentence length'
                              '(all longer will be truncated)',
-                        default=50)
+                        default=150)    # 100
     parser.add_argument('--target_vocab_size',
                         type=int,
                         help='The size of target vocabularies.',
-                        default=1000)
+                        default=10000)  # 1000
     parser.add_argument('--n_epoch',
                         type=int,
                         help='The number of epoch for training model.',
