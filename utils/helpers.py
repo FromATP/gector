@@ -215,6 +215,8 @@ def get_weights_name(transformer_name, lowercase):
         return 'xlnet-base-cased'
     if transformer_name == 'xlnet-large':
         return 'xlnet-large-cased'
+    if transformer_name == 'bert-chn':
+        return 'bert-base-chinese'
 
 
 def remove_double_tokens(sent):

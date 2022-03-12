@@ -126,6 +126,7 @@ def main(args):
                       label_smoothing=args.label_smoothing,
                       special_tokens_fix=args.special_tokens_fix)
 
+    os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     if torch.cuda.is_available():
         if torch.cuda.device_count() > 1:
@@ -299,9 +300,9 @@ if __name__ == '__main__':
                         default='')
     parser.add_argument('--transformer_model',
                         choices=['bert', 'distilbert', 'gpt2', 'roberta', 'transformerxl', 'xlnet', 'albert',
-                                 'bert-large', 'roberta-large', 'xlnet-large'],
+                                 'bert-large', 'roberta-large', 'xlnet-large', 'bert-chn'],
                         help='Name of the transformer model.',
-                        default='roberta')
+                        default='bert-chn')
     parser.add_argument('--special_tokens_fix',
                         type=int,
                         help='Whether to fix problem with [CLS], [SEP] tokens tokenization.',
