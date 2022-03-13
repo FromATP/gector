@@ -119,7 +119,7 @@ def split_train_test(inputfile, trainfile, testfile):
     print(f'{len(train)} sentences in training set and {len(test)} sentences in development set.')
 
 if __name__ == '__main__':
-    data_dir = Path('./CGEDdata')
+    data_dir = Path('./CGEDrawdata')
     output_dir = Path('./CGEDprocessed')
     output_dir.mkdir(exist_ok=True, parents=True)
     count = 0
