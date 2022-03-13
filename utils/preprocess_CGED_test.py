@@ -11,7 +11,8 @@ if __name__ == "__main__":
         lines = inputfd.readlines()
         for line in lines:
             line = line.split('\t')
-            sent.append(line[1])
+            line = ' '.join(list(line[1]))
+            sent.append(line)
     print(f'{len(sent)} test sentences in total.')
     with open(outputfile, 'w', encoding='utf-8') as outputfd:
         outputfd.writelines(sent)
