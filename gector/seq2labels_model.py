@@ -13,6 +13,32 @@ from allennlp.training.metrics import CategoricalAccuracy
 from overrides import overrides
 from torch.nn.modules.linear import Linear
 
+def get_batch_metrics(batch_labels, batch_prob, prefix):
+    """
+    batch_labels: torch.LongTensor, (batch_size, num_tokens)
+    batch_prob: torch.Tensor, (batch_size, num_tokens, tag_vocab_size)
+    prefix: str
+    """
+    from sklearn.metrics import confusion_matrix, precision_score, recall_score
+
+    y_pred = torch.argmax(batch_prob, dim=2)
+    y_pred = torch.reshape(y_pred, (-1,)).cpu()
+    y_true = torch.reshape(batch_labels, (-1,)).cpu()
+    cm = confusion_matrix(y_true, y_pred)
+
+    num_tokens = batch_labels.shape[1]
+    p_0 = cm[0][0] / numpy.sum(cm[:, 0])
+    r_0 = cm[0][0] / numpy.sum(cm[0, :])
+    p_1 = (precision_score(y_true, y_pred, average="macro") * num_tokens - p_0) / (num_tokens - 1)
+    r_1 = (recall_score(y_true, y_pred, average="macro") * num_tokens - r_0) / (num_tokens - 1) 
+    
+    output_dict = {
+        prefix + "_p_0": p_0,
+        prefix + "_r_0": r_0,
+        prefix + "_p_1": p_1,
+        prefix + "_r_1": r_1
+    }
+    return output_dict
 
 @Model.register("seq2labels")
 class Seq2Labels(Model):
@@ -159,7 +185,12 @@ class Seq2Labels(Model):
                 metric(logits_labels, labels, mask.float())
                 metric(logits_d, d_tags, mask.float())
             output_dict["loss"] = loss_labels + loss_d
-
+        
+            metrics_labels = get_batch_metrics(labels, class_probabilities_labels, "l")
+            metrics_d = get_batch_metrics(d_tags, class_probabilities_d, "d")
+            output_dict["metrics"] = metrics_labels
+            output_dict["metrics"].update(metrics_d)
+        
         if metadata is not None:
             output_dict["words"] = [x["words"] for x in metadata]
         return output_dict

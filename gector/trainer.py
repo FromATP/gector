@@ -289,7 +289,7 @@ class Trainer(TrainerBase):
                 )
             loss = None
 
-        return loss
+        return loss, output_dict["metrics"]
 
     def _train_epoch(self, epoch: int) -> Dict[str, float]:
         """
@@ -324,132 +324,137 @@ class Trainer(TrainerBase):
         histogram_parameters = set(self.model.get_parameters_for_histogram_tensorboard_logging())
 
         logger.info("Training")
-        train_generator_tqdm = Tqdm.tqdm(train_generator, total=num_training_batches)
+        # train_generator_tqdm = Tqdm.tqdm(train_generator, total=num_training_batches)
         cumulative_batch_size = 0
         self.optimizer.zero_grad()
-        for batch_group in train_generator_tqdm:
-            batches_this_epoch += 1
-            self._batch_num_total += 1
-            batch_num_total = self._batch_num_total
+        with Tqdm.tqdm(train_generator, total=num_training_batches) as train_generator_tqdm:
+            for batch_group in train_generator_tqdm:
+                batches_this_epoch += 1
+                self._batch_num_total += 1
+                batch_num_total = self._batch_num_total
 
-            iter_len = self.accumulated_batch_count \
-                if batches_this_epoch <= (num_training_batches - residue) else residue
+                iter_len = self.accumulated_batch_count \
+                    if batches_this_epoch <= (num_training_batches - residue) else residue
 
-            if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
-                print(f'Before forward pass - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
-                print(f'Before forward pass - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
-            try:
-                loss = self.batch_loss(batch_group, for_training=True) / iter_len
-            except RuntimeError as e:
-                print(e)
-                for x in batch_group:
-                    all_words = [len(y['words']) for y in x['metadata']]
-                    print(f"Total sents: {len(all_words)}. "
-                          f"Min {min(all_words)}. Max {max(all_words)}")
-                    for elem in ['labels', 'd_tags']:
-                        tt = x[elem]
-                        print(
-                            f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
-                    for elem in ["bert", "mask", "bert-offsets"]:
-                        tt = x['tokens'][elem]
-                        print(
-                            f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
-                raise e
+                if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
+                    print(f'Before forward pass - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
+                    print(f'Before forward pass - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
+                try:
+                    loss, batch_metrics = self.batch_loss(batch_group, for_training=True)
+                    loss = loss / iter_len
+                except RuntimeError as e:
+                    print(e)
+                    for x in batch_group:
+                        all_words = [len(y['words']) for y in x['metadata']]
+                        print(f"Total sents: {len(all_words)}. "
+                            f"Min {min(all_words)}. Max {max(all_words)}")
+                        for elem in ['labels', 'd_tags']:
+                            tt = x[elem]
+                            print(
+                                f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
+                        for elem in ["bert", "mask", "bert-offsets"]:
+                            tt = x['tokens'][elem]
+                            print(
+                                f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
+                    raise e
 
-            if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
-                print(f'After forward pass - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
-                print(f'After forward pass - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
+                if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
+                    print(f'After forward pass - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
+                    print(f'After forward pass - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
 
-            if torch.isnan(loss):
-                raise ValueError("nan loss encountered")
+                if torch.isnan(loss):
+                    raise ValueError("nan loss encountered")
 
-            loss.backward()
+                loss.backward()
 
-            if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
-                print(f'After backprop - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
-                print(f'After backprop - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
+                if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
+                    print(f'After backprop - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
+                    print(f'After backprop - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
 
-            train_loss += loss.item() * iter_len
+                train_loss += loss.item() * iter_len
 
-            del batch_group, loss
-            torch.cuda.empty_cache()
+                del batch_group, loss
+                torch.cuda.empty_cache()
 
-            if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
-                print(f'After collecting garbage - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
-                print(f'After collecting garbage - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
+                if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
+                    print(f'After collecting garbage - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
+                    print(f'After collecting garbage - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
 
-            batch_grad_norm = self.rescale_gradients()
+                batch_grad_norm = self.rescale_gradients()
 
-            # This does nothing if batch_num_total is None or you are using a
-            # scheduler which doesn't update per batch.
-            if self._learning_rate_scheduler:
-                self._learning_rate_scheduler.step_batch(batch_num_total)
-            if self._momentum_scheduler:
-                self._momentum_scheduler.step_batch(batch_num_total)
+                # This does nothing if batch_num_total is None or you are using a
+                # scheduler which doesn't update per batch.
+                if self._learning_rate_scheduler:
+                    self._learning_rate_scheduler.step_batch(batch_num_total)
+                if self._momentum_scheduler:
+                    self._momentum_scheduler.step_batch(batch_num_total)
 
-            if self._tensorboard.should_log_histograms_this_batch():
-                # get the magnitude of parameter updates for logging
-                # We need a copy of current parameters to compute magnitude of updates,
-                # and copy them to CPU so large models won't go OOM on the GPU.
-                param_updates = {
-                    name: param.detach().cpu().clone()
-                    for name, param in self.model.named_parameters()
-                }
-                if batches_this_epoch % self.accumulated_batch_count == 0 or \
-                        batches_this_epoch == num_training_batches:
-                    self.optimizer.step()
-                    self.optimizer.zero_grad()
-                for name, param in self.model.named_parameters():
-                    param_updates[name].sub_(param.detach().cpu())
-                    update_norm = torch.norm(param_updates[name].view(-1))
-                    param_norm = torch.norm(param.view(-1)).cpu()
-                    self._tensorboard.add_train_scalar(
-                        "gradient_update/" + name, update_norm / (param_norm + 1e-7)
+                if self._tensorboard.should_log_histograms_this_batch():
+                    # get the magnitude of parameter updates for logging
+                    # We need a copy of current parameters to compute magnitude of updates,
+                    # and copy them to CPU so large models won't go OOM on the GPU.
+                    param_updates = {
+                        name: param.detach().cpu().clone()
+                        for name, param in self.model.named_parameters()
+                    }
+                    if batches_this_epoch % self.accumulated_batch_count == 0 or \
+                            batches_this_epoch == num_training_batches:
+                        self.optimizer.step()
+                        self.optimizer.zero_grad()
+                    for name, param in self.model.named_parameters():
+                        param_updates[name].sub_(param.detach().cpu())
+                        update_norm = torch.norm(param_updates[name].view(-1))
+                        param_norm = torch.norm(param.view(-1)).cpu()
+                        self._tensorboard.add_train_scalar(
+                            "gradient_update/" + name, update_norm / (param_norm + 1e-7)
+                        )
+                else:
+                    if batches_this_epoch % self.accumulated_batch_count == 0 or \
+                            batches_this_epoch == num_training_batches:
+                        self.optimizer.step()
+                        self.optimizer.zero_grad()
+
+                # Update moving averages
+                if self._moving_average is not None:
+                    self._moving_average.apply(batch_num_total)
+
+                # Update the description with the latest metrics
+                metrics = training_util.get_metrics(self.model, train_loss, batches_this_epoch)
+                description = training_util.description_from_metrics(metrics)
+
+                train_generator_tqdm.set_description(description, refresh=False)
+                if batch_metrics is not None:
+                    assert isinstance(batch_metrics, dict)
+                    train_generator_tqdm.set_postfix(batch_metrics)
+
+                # Log parameter values to Tensorboard
+                if self._tensorboard.should_log_this_batch():
+                    self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
+                    self._tensorboard.log_learning_rates(self.model, self.optimizer)
+
+                    self._tensorboard.add_train_scalar("loss/loss_train", metrics["loss"])
+                    self._tensorboard.log_metrics({"epoch_metrics/" + k: v for k, v in metrics.items()})
+
+                if self._tensorboard.should_log_histograms_this_batch():
+                    self._tensorboard.log_histograms(self.model, histogram_parameters)
+
+                if self._log_batch_size_period:
+                    cur_batch = sum([training_util.get_batch_size(batch) for batch in batch_group])
+                    cumulative_batch_size += cur_batch
+                    if (batches_this_epoch - 1) % self._log_batch_size_period == 0:
+                        average = cumulative_batch_size / batches_this_epoch
+                        logger.info(f"current batch size: {cur_batch} mean batch size: {average}")
+                        self._tensorboard.add_train_scalar("current_batch_size", cur_batch)
+                        self._tensorboard.add_train_scalar("mean_batch_size", average)
+
+                # Save model if needed.
+                if self._model_save_interval is not None and (
+                    time.time() - last_save_time > self._model_save_interval
+                ):
+                    last_save_time = time.time()
+                    self._save_checkpoint(
+                        "{0}.{1}".format(epoch, training_util.time_to_str(int(last_save_time)))
                     )
-            else:
-                if batches_this_epoch % self.accumulated_batch_count == 0 or \
-                        batches_this_epoch == num_training_batches:
-                    self.optimizer.step()
-                    self.optimizer.zero_grad()
-
-            # Update moving averages
-            if self._moving_average is not None:
-                self._moving_average.apply(batch_num_total)
-
-            # Update the description with the latest metrics
-            metrics = training_util.get_metrics(self.model, train_loss, batches_this_epoch)
-            description = training_util.description_from_metrics(metrics)
-
-            train_generator_tqdm.set_description(description, refresh=False)
-
-            # Log parameter values to Tensorboard
-            if self._tensorboard.should_log_this_batch():
-                self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
-                self._tensorboard.log_learning_rates(self.model, self.optimizer)
-
-                self._tensorboard.add_train_scalar("loss/loss_train", metrics["loss"])
-                self._tensorboard.log_metrics({"epoch_metrics/" + k: v for k, v in metrics.items()})
-
-            if self._tensorboard.should_log_histograms_this_batch():
-                self._tensorboard.log_histograms(self.model, histogram_parameters)
-
-            if self._log_batch_size_period:
-                cur_batch = sum([training_util.get_batch_size(batch) for batch in batch_group])
-                cumulative_batch_size += cur_batch
-                if (batches_this_epoch - 1) % self._log_batch_size_period == 0:
-                    average = cumulative_batch_size / batches_this_epoch
-                    logger.info(f"current batch size: {cur_batch} mean batch size: {average}")
-                    self._tensorboard.add_train_scalar("current_batch_size", cur_batch)
-                    self._tensorboard.add_train_scalar("mean_batch_size", average)
-
-            # Save model if needed.
-            if self._model_save_interval is not None and (
-                time.time() - last_save_time > self._model_save_interval
-            ):
-                last_save_time = time.time()
-                self._save_checkpoint(
-                    "{0}.{1}".format(epoch, training_util.time_to_str(int(last_save_time)))
-                )
 
         metrics = training_util.get_metrics(self.model, train_loss, batches_this_epoch, reset=True)
         metrics["cpu_memory_MB"] = peak_cpu_usage
@@ -481,41 +486,46 @@ class Trainer(TrainerBase):
         num_validation_batches = math.ceil(
             val_iterator.get_num_batches(self._validation_data) / num_gpus
         )
-        val_generator_tqdm = Tqdm.tqdm(val_generator, total=num_validation_batches)
+        # val_generator_tqdm = Tqdm.tqdm(val_generator, total=num_validation_batches)
         batches_this_epoch = 0
         val_loss = 0
-        for batch_group in val_generator_tqdm:
-            try:
-                loss = self.batch_loss(batch_group, for_training=False)
-            except RuntimeError as e:
-                print(e)
-                for x in batch_group:
-                    all_words = [len(y['words']) for y in x['metadata']]
-                    print(f"Total sents: {len(all_words)}. "
-                          f"Min {min(all_words)}. Max {max(all_words)}")
-                    for elem in ['labels', 'd_tags']:
-                        tt = x[elem] 
-                        print(
-                            f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
-                    for elem in ["bert", "mask", "bert-offsets"]:
-                        tt = x['tokens'][elem]
-                        print(
-                            f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
-                raise e
+        with Tqdm.tqdm(val_generator, total=num_validation_batches) as val_generator_tqdm:
+            for batch_group in val_generator_tqdm:
+                try:
+                    loss, batch_metrics = self.batch_loss(batch_group, for_training=False)
+                except RuntimeError as e:
+                    print(e)
+                    for x in batch_group:
+                        all_words = [len(y['words']) for y in x['metadata']]
+                        print(f"Total sents: {len(all_words)}. "
+                            f"Min {min(all_words)}. Max {max(all_words)}")
+                        for elem in ['labels', 'd_tags']:
+                            tt = x[elem] 
+                            print(
+                                f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
+                        for elem in ["bert", "mask", "bert-offsets"]:
+                            tt = x['tokens'][elem]
+                            print(
+                                f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
+                    raise e
 
-            if loss is not None:
-                # You shouldn't necessarily have to compute a loss for validation, so we allow for
-                # `loss` to be None.  We need to be careful, though - `batches_this_epoch` is
-                # currently only used as the divisor for the loss function, so we can safely only
-                # count those batches for which we actually have a loss.  If this variable ever
-                # gets used for something else, we might need to change things around a bit.
-                batches_this_epoch += 1
-                val_loss += loss.detach().cpu().numpy()
+                if loss is not None:
+                    # You shouldn't necessarily have to compute a loss for validation, so we allow for
+                    # `loss` to be None.  We need to be careful, though - `batches_this_epoch` is
+                    # currently only used as the divisor for the loss function, so we can safely only
+                    # count those batches for which we actually have a loss.  If this variable ever
+                    # gets used for something else, we might need to change things around a bit.
+                    batches_this_epoch += 1
+                    val_loss += loss.detach().cpu().numpy()
 
-            # Update the description with the latest metrics
-            val_metrics = training_util.get_metrics(self.model, val_loss, batches_this_epoch)
-            description = training_util.description_from_metrics(val_metrics)
-            val_generator_tqdm.set_description(description, refresh=False)
+                # Update the description with the latest metrics
+                val_metrics = training_util.get_metrics(self.model, val_loss, batches_this_epoch)
+                description = training_util.description_from_metrics(val_metrics)
+                
+                val_generator_tqdm.set_description(description, refresh=False)
+                if batch_metrics is not None:
+                    assert isinstance(batch_metrics, dict)
+                    val_generator_tqdm.set_postfix(batch_metrics)
 
         # Now restore the original parameter values.
         if self._moving_average is not None:
