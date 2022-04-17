@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import time
+import copy
 import traceback
 from typing import Dict, Optional, List, Tuple, Union, Iterable, Any
 
@@ -327,7 +328,8 @@ class Trainer(TrainerBase):
         # train_generator_tqdm = Tqdm.tqdm(train_generator, total=num_training_batches)
         cumulative_batch_size = 0
         self.optimizer.zero_grad()
-        with Tqdm.tqdm(train_generator, total=num_training_batches) as train_generator_tqdm:
+        summary_metrics = None
+        with Tqdm.tqdm(train_generator, total=num_training_batches, ncols=75) as train_generator_tqdm:
             for batch_group in train_generator_tqdm:
                 batches_this_epoch += 1
                 self._batch_num_total += 1
@@ -423,9 +425,13 @@ class Trainer(TrainerBase):
                 description = training_util.description_from_metrics(metrics)
 
                 train_generator_tqdm.set_description(description, refresh=False)
-                if batch_metrics is not None:
-                    assert isinstance(batch_metrics, dict)
-                    train_generator_tqdm.set_postfix(batch_metrics)
+                assert isinstance(batch_metrics, dict)
+                train_generator_tqdm.set_postfix(batch_metrics)
+                if summary_metrics is None:
+                    summary_metrics = copy.deepcopy(batch_metrics)
+                else:
+                    for key, val in batch_metrics.items():
+                        summary_metrics[key] = summary_metrics[key] + val
 
                 # Log parameter values to Tensorboard
                 if self._tensorboard.should_log_this_batch():
@@ -455,6 +461,11 @@ class Trainer(TrainerBase):
                     self._save_checkpoint(
                         "{0}.{1}".format(epoch, training_util.time_to_str(int(last_save_time)))
                     )
+
+        for key, val in summary_metrics.items():
+            summary_metrics[key] = summary_metrics[key] / batches_this_epoch
+        print("training metrics:")
+        print(summary_metrics)
 
         metrics = training_util.get_metrics(self.model, train_loss, batches_this_epoch, reset=True)
         metrics["cpu_memory_MB"] = peak_cpu_usage
@@ -488,9 +499,12 @@ class Trainer(TrainerBase):
         )
         # val_generator_tqdm = Tqdm.tqdm(val_generator, total=num_validation_batches)
         batches_this_epoch = 0
+        batch_num_total = 0
         val_loss = 0
-        with Tqdm.tqdm(val_generator, total=num_validation_batches) as val_generator_tqdm:
+        summary_metrics = None
+        with Tqdm.tqdm(val_generator, total=num_validation_batches, ncols=75) as val_generator_tqdm:
             for batch_group in val_generator_tqdm:
+                batch_num_total += 1
                 try:
                     loss, batch_metrics = self.batch_loss(batch_group, for_training=False)
                 except RuntimeError as e:
@@ -523,13 +537,22 @@ class Trainer(TrainerBase):
                 description = training_util.description_from_metrics(val_metrics)
                 
                 val_generator_tqdm.set_description(description, refresh=False)
-                if batch_metrics is not None:
-                    assert isinstance(batch_metrics, dict)
-                    val_generator_tqdm.set_postfix(batch_metrics)
+                assert isinstance(batch_metrics, dict)
+                val_generator_tqdm.set_postfix(batch_metrics)
+                if summary_metrics is None:
+                    summary_metrics = copy.deepcopy(batch_metrics)
+                else:
+                    for key, val in batch_metrics.items():
+                        summary_metrics[key] = summary_metrics[key] + val
 
         # Now restore the original parameter values.
         if self._moving_average is not None:
             self._moving_average.restore()
+
+        for key, val in summary_metrics.items():
+            summary_metrics[key] = summary_metrics[key] / batch_num_total
+        print("validation metrics:")
+        print(summary_metrics)
 
         return val_loss, batches_this_epoch
 
