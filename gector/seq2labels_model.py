@@ -1,8 +1,10 @@
 """Basic model. Predicts tags for every token"""
+from re import A
 from typing import Dict, Optional, List, Any
 
 import numpy
 import torch
+import torch.nn.utils.rnn as R
 import torch.nn.functional as F
 from allennlp.data import Vocabulary
 from allennlp.models.model import Model
@@ -29,14 +31,18 @@ def get_batch_metrics(batch_labels, batch_prob, prefix):
     num_tokens = batch_labels.shape[1]
     p_0 = cm[0][0] / numpy.sum(cm[:, 0])
     r_0 = cm[0][0] / numpy.sum(cm[0, :])
+    if numpy.isnan(p_0):
+        p_0 = 0.0
+    if numpy.isnan(r_0):
+        r_0 = 0.0
     p_1 = (precision_score(y_true, y_pred, average="macro") * num_tokens - p_0) / (num_tokens - 1)
     r_1 = (recall_score(y_true, y_pred, average="macro") * num_tokens - r_0) / (num_tokens - 1) 
     
     output_dict = {
-        prefix + "_p_0": p_0,
-        prefix + "_r_0": r_0,
-        prefix + "_p_1": p_1,
-        prefix + "_r_1": r_1
+        prefix + "p0": p_0,
+        prefix + "r0": r_0,
+        prefix + "p1": p_1,
+        prefix + "r1": r_1
     }
     return output_dict
 
@@ -112,7 +118,37 @@ class Seq2Labels(Model):
 
         self.metrics = {"accuracy": CategoricalAccuracy()}
 
+        self.alpha_labels = [0.75 for i in range(self.num_labels_classes)]
+        self.alpha_labels[0] = 0.25
+        self.alpha_labels[-1] = self.alpha_labels[-2] = 0.25
+        self.alpha_d = [0.25, 0.75, 0.25, 0.25]
+        self.alpha_labels = torch.Tensor(self.alpha_labels)
+        self.alpha_d = torch.Tensor(self.alpha_d)
+        
+        self.gamma = 2
+
         initializer(self)
+
+    def focal_loss(self, logits, labels, mask, alpha, _label_smoothing=0.0):
+        batch_size = logits.shape[0]
+        lens = torch.sum(mask, dim=1).cpu()
+        prob = F.softmax(logits, dim=2)
+
+        flat_logits = torch.cat([logits[i, :lens[i], :] for i in range(batch_size)], dim=0)
+        flat_prob = torch.cat([prob[i, :lens[i], :] for i in range(batch_size)], dim=0)
+        flat_labels = torch.cat([labels[i, :lens[i]] for i in range(batch_size)])   
+
+        ce_loss = F.cross_entropy(flat_logits, flat_labels, reduction='none', label_smoothing=_label_smoothing)
+        
+        mask = torch.sparse.torch.eye(logits.shape[2]).to(flat_labels.device)
+        mask = torch.index_select(mask, 0, flat_labels)
+        p_t = torch.masked_select(flat_prob, mask.to(bool)).to(ce_loss.device)
+        f_loss = ce_loss * ((1 - p_t) ** self.gamma)
+
+        alpha_t = torch.index_select(alpha.to(flat_labels.device), 0, flat_labels)
+        f_loss = alpha_t * f_loss
+
+        return torch.mean(f_loss)
 
     @overrides
     def forward(self,  # type: ignore
@@ -178,9 +214,10 @@ class Seq2Labels(Model):
                        "class_probabilities_d_tags": class_probabilities_d,
                        "max_error_probability": incorr_prob}
         if labels is not None and d_tags is not None:
-            loss_labels = sequence_cross_entropy_with_logits(logits_labels, labels, mask,
-                                                             label_smoothing=self.label_smoothing)
-            loss_d = sequence_cross_entropy_with_logits(logits_d, d_tags, mask)
+            loss_labels = self.focal_loss(logits_labels, labels, mask, 
+                                            self.alpha_labels, self.label_smoothing)
+            loss_d = self.focal_loss(logits_d, d_tags, mask, self.alpha_d)
+
             for metric in self.metrics.values():
                 metric(logits_labels, labels, mask.float())
                 metric(logits_d, d_tags, mask.float())
