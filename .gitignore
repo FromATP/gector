@@ -134,5 +134,7 @@ dmypy.json
 
 *.sh
 token.txt
+pred.txt
 CGEDrawdata/
 try.py
+model_finished/

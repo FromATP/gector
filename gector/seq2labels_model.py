@@ -15,37 +15,6 @@ from allennlp.training.metrics import CategoricalAccuracy
 from overrides import overrides
 from torch.nn.modules.linear import Linear
 
-def get_batch_metrics(batch_labels, batch_prob, prefix):
-    """
-    batch_labels: torch.LongTensor, (batch_size, num_tokens)
-    batch_prob: torch.Tensor, (batch_size, num_tokens, tag_vocab_size)
-    prefix: str
-    """
-    from sklearn.metrics import confusion_matrix, precision_score, recall_score
-
-    y_pred = torch.argmax(batch_prob, dim=2)
-    y_pred = torch.reshape(y_pred, (-1,)).cpu()
-    y_true = torch.reshape(batch_labels, (-1,)).cpu()
-    cm = confusion_matrix(y_true, y_pred)
-
-    num_tokens = batch_labels.shape[1]
-    p_0 = cm[0][0] / numpy.sum(cm[:, 0])
-    r_0 = cm[0][0] / numpy.sum(cm[0, :])
-    if numpy.isnan(p_0):
-        p_0 = 0.0
-    if numpy.isnan(r_0):
-        r_0 = 0.0
-    p_1 = (precision_score(y_true, y_pred, average="macro") * num_tokens - p_0) / (num_tokens - 1)
-    r_1 = (recall_score(y_true, y_pred, average="macro") * num_tokens - r_0) / (num_tokens - 1) 
-    
-    output_dict = {
-        prefix + "p0": p_0,
-        prefix + "r0": r_0,
-        prefix + "p1": p_1,
-        prefix + "r1": r_1
-    }
-    return output_dict
-
 @Model.register("seq2labels")
 class Seq2Labels(Model):
     """
@@ -118,16 +87,51 @@ class Seq2Labels(Model):
 
         self.metrics = {"accuracy": CategoricalAccuracy()}
 
-        self.alpha_labels = [0.75 for i in range(self.num_labels_classes)]
-        self.alpha_labels[0] = 0.25
-        self.alpha_labels[-1] = self.alpha_labels[-2] = 0.25
-        self.alpha_d = [0.25, 0.75, 0.25, 0.25]
+        self.alpha_labels = [0.7 for i in range(self.num_labels_classes)]
+        self.alpha_labels[0] = 0.2
+        self.alpha_labels[-1] = self.alpha_labels[-2] = 0.05
+        self.alpha_d = [0.2, 0.7, 0.05, 0.05]
         self.alpha_labels = torch.Tensor(self.alpha_labels)
         self.alpha_d = torch.Tensor(self.alpha_d)
         
         self.gamma = 2
 
         initializer(self)
+
+    def get_batch_metrics(self, batch_labels, batch_prob, prefix):
+        """
+        batch_labels: torch.LongTensor, (batch_size, num_tokens)
+        batch_prob: torch.Tensor, (batch_size, num_tokens, tag_vocab_size)
+        prefix: str
+        """
+        from sklearn.metrics import confusion_matrix, precision_score, recall_score
+
+        all_labels = [i for i in range(self.num_labels_classes)]
+        if prefix == "d":
+            all_labels = [i for i in range(self.num_detect_classes)]
+
+        y_pred = torch.argmax(batch_prob, dim=2)
+        y_pred = torch.reshape(y_pred, (-1,)).cpu()
+        y_true = torch.reshape(batch_labels, (-1,)).cpu()
+        cm = confusion_matrix(y_true, y_pred, labels=all_labels)[:-2, :-2]
+
+        num_tokens = batch_labels.shape[1]
+        p_0 = cm[0][0] / numpy.sum(cm[:, 0])
+        r_0 = cm[0][0] / numpy.sum(cm[0, :])
+        if numpy.isnan(p_0):
+            p_0 = 0.0
+        if numpy.isnan(r_0):
+            r_0 = 0.0
+        p_1 = (precision_score(y_true, y_pred, average="macro") * num_tokens - p_0) / (num_tokens - 1)
+        r_1 = (recall_score(y_true, y_pred, average="macro") * num_tokens - r_0) / (num_tokens - 1) 
+        
+        output_dict = {
+            prefix + "p0": p_0,
+            prefix + "r0": r_0,
+            prefix + "p1": p_1,
+            prefix + "r1": r_1
+        }
+        return output_dict
 
     def focal_loss(self, logits, labels, mask, alpha, _label_smoothing=0.0):
         batch_size = logits.shape[0]
@@ -223,8 +227,8 @@ class Seq2Labels(Model):
                 metric(logits_d, d_tags, mask.float())
             output_dict["loss"] = loss_labels + loss_d
         
-            metrics_labels = get_batch_metrics(labels, class_probabilities_labels, "l")
-            metrics_d = get_batch_metrics(d_tags, class_probabilities_d, "d")
+            metrics_labels = self.get_batch_metrics(labels, class_probabilities_labels, "l")
+            metrics_d = self.get_batch_metrics(d_tags, class_probabilities_d, "d")
             output_dict["metrics"] = metrics_labels
             output_dict["metrics"].update(metrics_d)
         
