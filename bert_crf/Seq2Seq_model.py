@@ -171,7 +171,7 @@ class Seq2Seq(Model):
         encoded_text = self.encoder(embedded_text, word_lens)
         encoded_text = self.predictor_dropout(encoded_text)
         # print(encoded_text.size())
-        loss = self.crf_layer(encoded_text.permute(1, 0, 2), labels.permute(1, 0), mask=mask.permute(1, 0))
+        loss = self.crf_layer(encoded_text.permute(1, 0, 2), labels.permute(1, 0), mask=mask.permute(1, 0).type(torch.bool))
         output_dict["loss"] = loss
         
         if metadata is not None:
