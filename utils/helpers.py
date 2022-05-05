@@ -6,6 +6,7 @@ VOCAB_DIR = Path(__file__).resolve().parent.parent / "data"
 PAD = "@@PADDING@@"
 UNK = "@@UNKNOWN@@"
 START_TOKEN = "$START"
+STOP_TOKEN = "$STOP"
 SEQ_DELIMETERS = {"tokens": " ",
                   "labels": "SEPL|||SEPR",
                   "operations": "SEPL__SEPR"}
@@ -186,7 +187,7 @@ def encode_verb_form(original_word, corrected_word):
     return answer
 
 
-def get_weights_name(transformer_name, lowercase):
+def get_weights_name(transformer_name, lowercase = False):
     if transformer_name == 'bert' and lowercase:
         return 'bert-base-uncased'
     if transformer_name == 'bert' and not lowercase:
