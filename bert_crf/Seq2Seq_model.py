@@ -85,7 +85,7 @@ class Seq2Seq(Model):
         self.predictor_dropout = TimeDistributed(torch.nn.Dropout(predictor_dropout))
         output_dim = text_field_embedder._token_embedders['bert'].get_output_dim()
         self.ged_embedder = AttentionEncoder(input_dim=self.ged_model.num_labels_classes, output_dim=output_dim)
-        self.param_learning_layer = LinearEncoder(label_size=1, input_dim=2*output_dim)
+        self.param_learning_layer = TimeDistributed(torch.nn.Linear(2*output_dim, 1))
 
         if encoder_type == "Linear":
             self.encoder = LinearEncoder(label_size=self.num_labels_classes, input_dim=output_dim)
@@ -150,9 +150,10 @@ class Seq2Seq(Model):
 
         embedded_text = self.text_field_embedder(tokens)
         mask = get_text_field_mask(tokens)
+        word_lens = torch.sum(mask, dim=1)
         # print(embedded_text.size())
         concat_embedding = torch.cat([embedded_text, embedded_ged_res], dim=2)
-        alpha = F.sigmoid(self.param_learning_layer(concat_embedding))
+        alpha = torch.mean(F.sigmoid(self.param_learning_layer(concat_embedding)))
         # print(alpha)
         final_embedding = alpha * embedded_text + (1 - alpha) * embedded_ged_res
         # print(final_embedding.size())
@@ -160,7 +161,6 @@ class Seq2Seq(Model):
         output_dict = {}
         
         if labels is not None:
-            word_lens = torch.sum(mask, dim=1)
             final_embedding = self.encoder(final_embedding, word_lens)
             final_embedding = self.predictor_dropout(final_embedding)
             loss = self.crf_layer(final_embedding, labels, mask=mask.type(torch.bool))
@@ -182,7 +182,7 @@ class Seq2Seq(Model):
 
         embedded_text = self.text_field_embedder(tokens)
         concat_embedding = torch.cat([embedded_text, embedded_ged_res], dim=2)
-        alpha = F.sigmoid(self.param_learning_layer(concat_embedding))
+        alpha = torch.mean(F.sigmoid(self.param_learning_layer(concat_embedding)))
         final_embedding = alpha * embedded_text + (1 - alpha) * embedded_ged_res
         batch_size, sequence_length, _ = final_embedding.size()
 
