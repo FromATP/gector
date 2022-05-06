@@ -19,7 +19,7 @@ from allennlp.nn import InitializerApplicator, RegularizerApplicator
 from allennlp.nn.util import get_text_field_mask
 
 from overrides import overrides
-from bert_crf.encoders import LinearEncoder, BiLSTMEncoder
+from bert_crf.encoders import LinearEncoder, BiLSTMEncoder, AttentionEncoder
 
 @Model.register("seq2seq")
 class Seq2Seq(Model):
@@ -56,7 +56,8 @@ class Seq2Seq(Model):
         If provided, will be used to calculate the regularization penalty during training.
     """
 
-    def __init__(self, vocab: Vocabulary,
+    def __init__(self, ged_model: Model,
+                 vocab: Vocabulary,
                  text_field_embedder: TextFieldEmbedder,
                  predictor_dropout=0.0,
                  labels_namespace: str = "labels",
@@ -71,6 +72,8 @@ class Seq2Seq(Model):
                  hidden_dim = 256) -> None:
         super(Seq2Seq, self).__init__(vocab, regularizer)
 
+        self.ged_model = ged_model
+
         self.label_namespaces = [labels_namespace]
         self.text_field_embedder = text_field_embedder
         self.num_labels_classes = self.vocab.get_vocab_size(labels_namespace)
@@ -81,6 +84,8 @@ class Seq2Seq(Model):
         self._verbose_metrics = verbose_metrics
         self.predictor_dropout = TimeDistributed(torch.nn.Dropout(predictor_dropout))
         output_dim = text_field_embedder._token_embedders['bert'].get_output_dim()
+        self.ged_embedder = AttentionEncoder(input_dim=self.ged_model.num_labels_classes, output_dim=output_dim)
+        self.param_learning_layer = LinearEncoder(label_size=1, input_dim=2*output_dim)
 
         if encoder_type == "Linear":
             self.encoder = LinearEncoder(label_size=self.num_labels_classes, input_dim=output_dim)
@@ -88,7 +93,7 @@ class Seq2Seq(Model):
             self.encoder = BiLSTMEncoder(label_size=self.num_labels_classes, input_dim=output_dim,
                                         hidden_dim=hidden_dim, drop_lstm=lstm_dropout_rate)
             
-        self.crf_layer = CRF(self.num_labels_classes)
+        self.crf_layer = CRF(self.num_labels_classes, batch_first=True)
         
 
         self.metrics = {"accuracy": CategoricalAccuracy()}
@@ -100,28 +105,7 @@ class Seq2Seq(Model):
         self.gamma = 2
 
         initializer(self)
-
-
-    def focal_loss(self, logits, labels, mask, alpha, _label_smoothing=0.0):
-        batch_size = logits.shape[0]
-        lens = torch.sum(mask, dim=1).cpu()
-        prob = F.softmax(logits, dim=2)
-
-        flat_logits = torch.cat([logits[i, :lens[i], :] for i in range(batch_size)], dim=0)
-        flat_prob = torch.cat([prob[i, :lens[i], :] for i in range(batch_size)], dim=0)
-        flat_labels = torch.cat([labels[i, :lens[i]] for i in range(batch_size)])   
-
-        ce_loss = F.cross_entropy(flat_logits, flat_labels, reduction='none', label_smoothing=_label_smoothing)
         
-        mask = torch.sparse.torch.eye(logits.shape[2]).to(flat_labels.device)
-        mask = torch.index_select(mask, 0, flat_labels)
-        p_t = torch.masked_select(flat_prob, mask.to(bool)).to(ce_loss.device)
-        f_loss = ce_loss * ((1 - p_t) ** self.gamma)
-
-        alpha_t = torch.index_select(alpha.to(flat_labels.device), 0, flat_labels)
-        f_loss = alpha_t * f_loss
-
-        return torch.mean(f_loss)
 
     @overrides
     def forward(self,  # type: ignore
@@ -160,19 +144,27 @@ class Seq2Seq(Model):
             A scalar loss to be optimised.
 
         """
+        ged_output = self.ged_model(tokens)["class_probabilities_labels"]
+        embedded_ged_res = self.ged_embedder(ged_output)
+        # print(embedded_ged_res.size())
+
         embedded_text = self.text_field_embedder(tokens)
-        batch_size, sequence_length, _ = embedded_text.size()
         mask = get_text_field_mask(tokens)
+        # print(embedded_text.size())
+        concat_embedding = torch.cat([embedded_text, embedded_ged_res], dim=2)
+        alpha = F.sigmoid(self.param_learning_layer(concat_embedding))
+        # print(alpha)
+        final_embedding = alpha * embedded_text + (1 - alpha) * embedded_ged_res
+        # print(final_embedding.size())
+
         output_dict = {}
         
-        assert labels is not None
-        word_lens = torch.sum(mask, dim=1)
-        # print(encoded_text.size())
-        encoded_text = self.encoder(embedded_text, word_lens)
-        encoded_text = self.predictor_dropout(encoded_text)
-        # print(encoded_text.size())
-        loss = self.crf_layer(encoded_text.permute(1, 0, 2), labels.permute(1, 0), mask=mask.permute(1, 0).type(torch.bool))
-        output_dict["loss"] = loss
+        if labels is not None:
+            word_lens = torch.sum(mask, dim=1)
+            final_embedding = self.encoder(final_embedding, word_lens)
+            final_embedding = self.predictor_dropout(final_embedding)
+            loss = self.crf_layer(final_embedding, labels, mask=mask.type(torch.bool))
+            output_dict["loss"] = loss
         
         if metadata is not None:
             output_dict["words"] = [x["words"] for x in metadata]
@@ -184,10 +176,17 @@ class Seq2Seq(Model):
         Does a simple position-wise argmax over each token, converts indices to string labels, and
         adds a ``"tags"`` key to the dictionary with the result.
         """
-        encoded_text = self.text_field_embedder(tokens)
-        batch_size, sequence_length, _ = encoded_text.size()
 
-        word_indices = self.crf_layer.decode(encoded_text.permute(1, 0, 2))
+        ged_output = self.ged_model(tokens)["class_probabilities_labels"]
+        embedded_ged_res = self.ged_embedder(ged_output)
+
+        embedded_text = self.text_field_embedder(tokens)
+        concat_embedding = torch.cat([embedded_text, embedded_ged_res], dim=2)
+        alpha = F.sigmoid(self.param_learning_layer(concat_embedding))
+        final_embedding = alpha * embedded_text + (1 - alpha) * embedded_ged_res
+        batch_size, sequence_length, _ = final_embedding.size()
+
+        word_indices = self.crf_layer.decode(final_embedding)
         
         for idx in range(batch_size):
             word_indices[idx][:sequence_length[idx]] = word_indices[idx][:sequence_length[idx]].flip([0])

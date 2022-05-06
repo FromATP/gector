@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
+from allennlp.modules import TimeDistributed
 
 class BiLSTMEncoder(nn.Module):
     """
@@ -60,3 +61,15 @@ class LinearEncoder(nn.Module):
         return outputs
 
 
+class AttentionEncoder(nn.Module):
+    def __init__(self, input_dim:int, output_dim:int):
+        super(AttentionEncoder, self).__init__()
+        self.linear_layer = TimeDistributed(nn.Linear(input_dim, output_dim))
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=output_dim, nhead=4, batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=2)
+
+    def forward(self, word_rep: torch.Tensor):
+        # word_rep: (batch_size, sent_len, input rep size)
+        trans_word_rep = self.linear_layer(word_rep)
+        outputs = self.transformer_encoder(trans_word_rep)
+        return outputs

@@ -56,13 +56,15 @@ def get_data_reader(model_name, max_len, skip_correct=False, test_mode=False,
     return reader
 
 
-def get_gec_model(model_name, vocab, take_grad=False,
+def get_gec_model(model_name, vocab, ged_model,
+                    take_grad=False,
                     predictor_dropout=0,
                     label_smoothing=0.0,
                     confidence=0,
                     special_tokens_fix=0):
-    token_embs = get_embbeder(model_name, special_tokens_fix=special_tokens_fix, take_grad=True)
-    model = Seq2Seq(vocab=vocab,
+    token_embs = get_embbeder(model_name, special_tokens_fix=special_tokens_fix, take_grad=take_grad)
+    model = Seq2Seq(ged_model=ged_model,
+                    vocab=vocab,
                     text_field_embedder=token_embs,
                     predictor_dropout=predictor_dropout,
                     label_smoothing=label_smoothing,
@@ -105,7 +107,7 @@ def main(args):
                                                         'labels': args.target_vocab_size},
                                         tokens_to_add=tokens_to_add)
 
-    gec_model = get_gec_model(weights_name, gec_vocab,
+    gec_model = get_gec_model(weights_name, gec_vocab, ged_model,
                       take_grad=True,
                       label_smoothing=args.label_smoothing,
                       special_tokens_fix=args.special_tokens_fix)
