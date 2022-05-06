@@ -179,6 +179,9 @@ class Seq2Seq(Model):
 
         ged_output = self.ged_model(tokens)["class_probabilities_labels"]
         embedded_ged_res = self.ged_embedder(ged_output)
+        
+        mask = get_text_field_mask(tokens)
+        word_lens = torch.sum(mask, dim=1)
 
         embedded_text = self.text_field_embedder(tokens)
         concat_embedding = torch.cat([embedded_text, embedded_ged_res], dim=2)
@@ -186,6 +189,8 @@ class Seq2Seq(Model):
         final_embedding = alpha * embedded_text + (1 - alpha) * embedded_ged_res
         batch_size, sequence_length, _ = final_embedding.size()
 
+        final_embedding = self.encoder(final_embedding, word_lens)
+        final_embedding = self.predictor_dropout(final_embedding)
         word_indices = self.crf_layer.decode(final_embedding)
         
         for idx in range(batch_size):
