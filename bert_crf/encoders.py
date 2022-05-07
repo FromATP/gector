@@ -60,16 +60,37 @@ class LinearEncoder(nn.Module):
         outputs = self.hidden2tag(word_rep)
         return outputs
 
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, dropout=0.1, max_len=5000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+
 
 class AttentionEncoder(nn.Module):
-    def __init__(self, input_dim:int, output_dim:int):
+    def __init__(self, dict_size:int, output_dim:int, padding_idx:int):
         super(AttentionEncoder, self).__init__()
-        self.linear_layer = TimeDistributed(nn.Linear(input_dim, output_dim))
+        self.embedding_layer = nn.Embedding(dict_size, output_dim, padding_idx=padding_idx)
+        self.pos_encoder = PositionalEncoding(output_dim, dropout=0.5)
         self.encoder_layer = nn.TransformerEncoderLayer(d_model=output_dim, nhead=4, batch_first=True)
-        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=2)
+        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=4)
 
     def forward(self, word_rep: torch.Tensor):
         # word_rep: (batch_size, sent_len, input rep size)
-        trans_word_rep = self.linear_layer(word_rep)
+        trans_word_rep = self.embedding_layer(word_rep)
+        trans_word_rep = self.pos_encoder(trans_word_rep)
         outputs = self.transformer_encoder(trans_word_rep)
         return outputs
