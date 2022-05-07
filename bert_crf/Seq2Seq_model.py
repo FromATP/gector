@@ -93,9 +93,9 @@ class Seq2Seq(Model):
         self.param_learning_layer = TimeDistributed(torch.nn.Linear(2*output_dim, output_dim))
 
         if encoder_type == "Linear":
-            self.encoder = LinearEncoder(label_size=self.num_labels_classes, input_dim=output_dim)
+            self.feed_forward = LinearEncoder(label_size=self.num_labels_classes, input_dim=output_dim)
         else:
-            self.encoder = BiLSTMEncoder(label_size=self.num_labels_classes, input_dim=output_dim,
+            self.feed_forward = BiLSTMEncoder(label_size=self.num_labels_classes, input_dim=output_dim,
                                         hidden_dim=hidden_dim, drop_lstm=lstm_dropout_rate)
             
         self.crf_layer = CRF(self.num_labels_classes, batch_first=True)
@@ -169,7 +169,7 @@ class Seq2Seq(Model):
         
         if labels is not None:
             final_embedding = self.predictor_dropout(final_embedding)
-            final_embedding = self.encoder(final_embedding, word_lens)
+            final_embedding = self.feed_forward(final_embedding, word_lens)
             loss = self.crf_layer(final_embedding, labels, mask=mask.type(torch.bool))
             
             # loss = sequence_cross_entropy_with_logits(final_embedding, labels, mask)
@@ -194,11 +194,11 @@ class Seq2Seq(Model):
 
         embedded_text = self.text_field_embedder(tokens)
         concat_embedding = torch.cat([embedded_text, embedded_ged_res], dim=2)
-        alpha = torch.mean(F.sigmoid(self.param_learning_layer(concat_embedding)))
+        alpha = F.sigmoid(self.param_learning_layer(concat_embedding))
         final_embedding = alpha * embedded_text + (1 - alpha) * embedded_ged_res
         batch_size, sequence_length, _ = final_embedding.size()
 
-        final_embedding = self.encoder(final_embedding, word_lens)
+        final_embedding = self.feed_forward(final_embedding, word_lens)
         final_embedding = self.predictor_dropout(final_embedding)
         word_indices = self.crf_layer.decode(final_embedding)
         
