@@ -16,6 +16,7 @@ from allennlp.models.model import Model
 from allennlp.training.metrics import CategoricalAccuracy
 from allennlp.modules import TimeDistributed, TextFieldEmbedder
 from allennlp.nn import InitializerApplicator, RegularizerApplicator
+from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_logits
 from allennlp.nn.util import get_text_field_mask
 
 from overrides import overrides
@@ -144,7 +145,8 @@ class Seq2Seq(Model):
             A scalar loss to be optimised.
 
         """
-        ged_output = self.ged_model(tokens)["class_probabilities_labels"]
+        with torch.no_grad():
+            ged_output = self.ged_model(tokens)["class_probabilities_labels"]
         embedded_ged_res = self.ged_embedder(ged_output)
         # print(embedded_ged_res.size())
 
@@ -161,9 +163,11 @@ class Seq2Seq(Model):
         output_dict = {}
         
         if labels is not None:
-            final_embedding = self.encoder(final_embedding, word_lens)
             final_embedding = self.predictor_dropout(final_embedding)
+            final_embedding = self.encoder(final_embedding, word_lens)
             loss = self.crf_layer(final_embedding, labels, mask=mask.type(torch.bool))
+            
+            # loss = sequence_cross_entropy_with_logits(final_embedding, labels, mask)
             output_dict["loss"] = loss
         
         if metadata is not None:
