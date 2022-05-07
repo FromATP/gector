@@ -20,7 +20,9 @@ from allennlp.nn.util import get_text_field_mask, sequence_cross_entropy_with_lo
 from allennlp.nn.util import get_text_field_mask
 
 from overrides import overrides
+
 from bert_crf.encoders import LinearEncoder, BiLSTMEncoder, AttentionEncoder
+from utils.helpers import PAD
 
 @Model.register("seq2seq")
 class Seq2Seq(Model):
@@ -85,8 +87,10 @@ class Seq2Seq(Model):
         self._verbose_metrics = verbose_metrics
         self.predictor_dropout = TimeDistributed(torch.nn.Dropout(predictor_dropout))
         output_dim = text_field_embedder._token_embedders['bert'].get_output_dim()
-        self.ged_embedder = AttentionEncoder(input_dim=self.ged_model.num_labels_classes, output_dim=output_dim)
-        self.param_learning_layer = TimeDistributed(torch.nn.Linear(2*output_dim, 1))
+        self.ged_embedder = AttentionEncoder(dict_size=self.ged_model.num_labels_classes,
+                                             output_dim=output_dim,
+                                             padding_idx = self.ged_model.vocab.get_token_index(PAD, "labels"))
+        self.param_learning_layer = TimeDistributed(torch.nn.Linear(2*output_dim, output_dim))
 
         if encoder_type == "Linear":
             self.encoder = LinearEncoder(label_size=self.num_labels_classes, input_dim=output_dim)
@@ -147,6 +151,7 @@ class Seq2Seq(Model):
         """
         with torch.no_grad():
             ged_output = self.ged_model(tokens)["class_probabilities_labels"]
+            ged_output = torch.argmax(ged_output, dim=2)
         embedded_ged_res = self.ged_embedder(ged_output)
         # print(embedded_ged_res.size())
 
@@ -155,7 +160,7 @@ class Seq2Seq(Model):
         word_lens = torch.sum(mask, dim=1)
         # print(embedded_text.size())
         concat_embedding = torch.cat([embedded_text, embedded_ged_res], dim=2)
-        alpha = torch.mean(F.sigmoid(self.param_learning_layer(concat_embedding)))
+        alpha = F.sigmoid(self.param_learning_layer(concat_embedding))
         # print(alpha)
         final_embedding = alpha * embedded_text + (1 - alpha) * embedded_ged_res
         # print(final_embedding.size())
