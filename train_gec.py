@@ -12,9 +12,9 @@ from gector.bert_token_embedder import PretrainedBertEmbedder
 from gector.tokenizer_indexer import PretrainedBertIndexer
 from gector.seq2labels_model import Seq2Labels
 from utils.helpers import get_weights_name
-from bert_crf.Seq2Seq_model import Seq2Seq
-from bert_crf.gec_trainer import Trainer
-from bert_crf.reader import Seq2SeqDataReader
+from seq2seq.Seq2Seq_model import Seq2Seq
+from seq2seq.gec_trainer import Trainer
+from seq2seq.reader import Seq2SeqDataReader
 
  
 def get_embbeder(weigths_name, special_tokens_fix, take_grad=False):
@@ -48,7 +48,6 @@ def get_data_reader(model_name, max_len, skip_correct=False, test_mode=False,
                                         )
     reader = Seq2SeqDataReader(token_indexers=token_indexers,
                                 max_len=max_len,
-                                skip_correct=skip_correct,
                                 test_mode=test_mode,
                                 lazy=True,
                                 tn_prob=tn_prob,
@@ -56,25 +55,23 @@ def get_data_reader(model_name, max_len, skip_correct=False, test_mode=False,
     return reader
 
 
-def get_gec_model(model_name, vocab, ged_model,
-                    take_grad=False,
+def get_gec_model(vocab, ged_model,
+                    max_seq_len = 150,
                     predictor_dropout=0,
                     label_smoothing=0.0,
-                    confidence=0,
-                    special_tokens_fix=0):
-    token_embs = get_embbeder(model_name, special_tokens_fix=special_tokens_fix, take_grad=take_grad)
+                    confidence=0):
     model = Seq2Seq(ged_model=ged_model,
                     vocab=vocab,
-                    text_field_embedder=token_embs,
                     predictor_dropout=predictor_dropout,
                     label_smoothing=label_smoothing,
+                    max_seq_len=max_seq_len,
                     confidence=confidence)
     return model
 
 
 def main(args):
     ged_vocab = Vocabulary.from_files(args.ged_vocab_path)
-    weights_name = get_weights_name(args.transformer_model)
+    weights_name = get_weights_name(args.ged_model_name)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
@@ -107,8 +104,8 @@ def main(args):
                                                         'labels': args.target_vocab_size},
                                         tokens_to_add=tokens_to_add)
 
-    gec_model = get_gec_model(weights_name, gec_vocab, ged_model,
-                      take_grad=True,
+    gec_model = get_gec_model(gec_vocab, ged_model,
+                      max_seq_len = args.max_len,
                       label_smoothing=args.label_smoothing,
                       special_tokens_fix=args.special_tokens_fix)
     gec_model.to(device)
@@ -178,6 +175,11 @@ if __name__ == '__main__':
                         help='Whether to fix problem with [CLS], [SEP] tokens tokenization. '
                              'For reproducing reported results it should be 0 for BERT/XLNet and 1 for RoBERTa.',
                         default=0)
+    parser.add_argument('--ged_model_name',
+                        choices=['bert', 'gpt2', 'transformerxl', 'xlnet', 'distilbert', 'roberta', 'albert'
+                                 'bert-large', 'roberta-large', 'xlnet-large', 'bert-chn'],
+                        help='Name of the transformer model.',
+                        default='bert-chn')
                         
     # args for gec dataset
     parser.add_argument('--train_set',
@@ -248,11 +250,5 @@ if __name__ == '__main__':
                         help='Learning rate during cold_steps.',
                         default=1e-3)
 
-    # common args
-    parser.add_argument('--transformer_model',
-                        choices=['bert', 'gpt2', 'transformerxl', 'xlnet', 'distilbert', 'roberta', 'albert'
-                                 'bert-large', 'roberta-large', 'xlnet-large', 'bert-chn'],
-                        help='Name of the transformer model.',
-                        default='bert-chn')
     args = parser.parse_args()
     main(args)

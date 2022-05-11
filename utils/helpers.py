@@ -8,6 +8,7 @@ UNK = "@@UNKNOWN@@"
 START_TOKEN = "$START"
 STOP_TOKEN = "$STOP"
 SEQ_DELIMETERS = {"tokens": " ",
+                  "sents": "SEPL|||SEPR",
                   "labels": "SEPL|||SEPR",
                   "operations": "SEPL__SEPR"}
 REPLACEMENTS = {
