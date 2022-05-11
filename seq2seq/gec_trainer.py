@@ -348,18 +348,6 @@ class Trainer(TrainerBase):
                     loss = loss / iter_len
                 except RuntimeError as e:
                     print(e)
-                    for x in batch_group:
-                        all_words = [len(y['words']) for y in x['metadata']]
-                        print(f"Total sents: {len(all_words)}. "
-                            f"Min {min(all_words)}. Max {max(all_words)}")
-                        for elem in ['labels']:
-                            tt = x[elem]
-                            print(
-                                f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
-                        for elem in ["bert", "mask", "bert-offsets"]:
-                            tt = x['tokens'][elem]
-                            print(
-                                f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
                     raise e
 
                 if self.cuda_verbose_step is not None and batch_num_total % self.cuda_verbose_step == 0:
@@ -499,18 +487,6 @@ class Trainer(TrainerBase):
                     loss = self.batch_loss(batch_group, for_training=False)
                 except RuntimeError as e:
                     print(e)
-                    for x in batch_group:
-                        all_words = [len(y['words']) for y in x['metadata']]
-                        print(f"Total sents: {len(all_words)}. "
-                            f"Min {min(all_words)}. Max {max(all_words)}")
-                        for elem in ['labels']:
-                            tt = x[elem] 
-                            print(
-                                f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
-                        for elem in ["bert", "mask", "bert-offsets"]:
-                            tt = x['tokens'][elem]
-                            print(
-                                f"{elem} shape {list(tt.shape)} and min {tt.min().item()} and {tt.max().item()}")
                     raise e
 
                 if loss is not None:
@@ -562,21 +538,21 @@ class Trainer(TrainerBase):
         epochs_trained = 0
         training_start_time = time.time()
 
-        if self.cold_step_count > 0:
-            base_lr = self.optimizer.param_groups[0]['lr']
-            for param_group in self.optimizer.param_groups:
-                param_group['lr'] = self.cold_lr
-            self.model.text_field_embedder._token_embedders['bert'].set_weights(freeze=True)
+        # if self.cold_step_count > 0:
+        #     base_lr = self.optimizer.param_groups[0]['lr']
+        #     for param_group in self.optimizer.param_groups:
+        #         param_group['lr'] = self.cold_lr
+        #     self.model.text_field_embedder._token_embedders['bert'].set_weights(freeze=True)
 
         metrics["best_epoch"] = self._metric_tracker.best_epoch
         for key, value in self._metric_tracker.best_epoch_metrics.items():
             metrics["best_validation_" + key] = value
 
         for epoch in range(epoch_counter, self._num_epochs):
-            if epoch == self.cold_step_count and epoch != 0:
-                for param_group in self.optimizer.param_groups:
-                    param_group['lr'] = base_lr
-                self.model.text_field_embedder._token_embedders['bert'].set_weights(freeze=False)
+            # if epoch == self.cold_step_count and epoch != 0:
+            #     for param_group in self.optimizer.param_groups:
+            #         param_group['lr'] = base_lr
+            #     self.model.text_field_embedder._token_embedders['bert'].set_weights(freeze=False)
 
             epoch_start_time = time.time()
             train_metrics = self._train_epoch(epoch)

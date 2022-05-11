@@ -33,7 +33,7 @@ class PositionalEncoding(nn.Module):
 
 class AttentionalEncoder(nn.Module):
 
-    def __init__(self, dict_size:int, output_dim:int, padding_idx:int):
+    def __init__(self, dict_size:int, output_dim:int, padding_idx:int = 0):
         super(AttentionalEncoder, self).__init__()
         self.embedding_layer = nn.Embedding(dict_size, output_dim, padding_idx=padding_idx)
         self.pos_encoder = PositionalEncoding(output_dim, dropout=0.5)
@@ -49,7 +49,7 @@ class AttentionalEncoder(nn.Module):
 
 class SelfAttentionLayer(nn.Module):
 
-    def __init__(self, dict_size:int, output_dim:int, padding_idx:int):
+    def __init__(self, dict_size:int, output_dim:int, padding_idx:int = 0):
         super(SelfAttentionLayer, self).__init__()
         self.embedding_layer = nn.Embedding(dict_size, output_dim, padding_idx=padding_idx)
         self.attn = nn.MultiheadAttention(output_dim, num_heads=8, dropout=0.1, batch_first=True)
@@ -65,7 +65,7 @@ class SelfAttentionLayer(nn.Module):
 
 class AttentionalDecoder(nn.Module):
 
-    def __init__(self, dict_size:int, output_dim:int, padding_idx:int):
+    def __init__(self, dict_size:int, output_dim:int, padding_idx:int = 0):
         super(AttentionalDecoder, self).__init__()
         self.embedding_layer = nn.Embedding(dict_size, output_dim, padding_idx=padding_idx)
         self.pos_encoder = PositionalEncoding(output_dim, dropout=0.5)

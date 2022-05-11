@@ -46,8 +46,6 @@ class Seq2SeqDataReader(DatasetReader):
                  lazy: bool = False,
                  max_len: int = None,
                  test_mode: bool = False,
-                 tn_prob: float = 0,
-                 tp_prob: float = 0,
                  broken_dot_strategy: str = "keep") -> None:
         super().__init__(lazy)
         self._token_indexers = token_indexers or {'tokens': SingleIdTokenIndexer()}
@@ -55,8 +53,6 @@ class Seq2SeqDataReader(DatasetReader):
         self._max_len = max_len
         self._broken_dot_strategy = broken_dot_strategy
         self._test_mode = test_mode
-        self._tn_prob = tn_prob
-        self._tp_prob = tp_prob
 
     @overrides
     def _read(self, file_path):
@@ -73,7 +69,7 @@ class Seq2SeqDataReader(DatasetReader):
 
                 src, tgt = line.split(self._delimeters["sents"])
                 src = src.split(self._delimeters["tokens"])
-                tgt = tgt.splie(self._delimeters["tokens"])
+                tgt = tgt.split(self._delimeters["tokens"])
                 
                 try:
                     src_tokens = [Token(token) for token in src]
@@ -112,16 +108,5 @@ class Seq2SeqDataReader(DatasetReader):
         tgt_sequence = TextField(tgt_tokens, self._token_indexers)
         fields["tgt"] = tgt_sequence
         fields["tgt_metadata"] = MetadataField({"words": tgt_words})
-
-        if tgt_words is not None:
-            rnd = random()
-            # skip TN
-            if self._skip_correct and src_words == tgt_words:
-                if rnd > self._tn_prob:
-                    return None
-            # skip TP
-            else:
-                if rnd > self._tp_prob:
-                    return None
 
         return Instance(fields)

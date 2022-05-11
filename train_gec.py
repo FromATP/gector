@@ -49,23 +49,17 @@ def get_data_reader(model_name, max_len, skip_correct=False, test_mode=False,
     reader = Seq2SeqDataReader(token_indexers=token_indexers,
                                 max_len=max_len,
                                 test_mode=test_mode,
-                                lazy=True,
-                                tn_prob=tn_prob,
-                                tp_prob=tp_prob)
+                                lazy=True)
     return reader
 
 
 def get_gec_model(vocab, ged_model,
                     max_seq_len = 150,
-                    predictor_dropout=0,
-                    label_smoothing=0.0,
-                    confidence=0):
+                    label_smoothing=0.0):
     model = Seq2Seq(ged_model=ged_model,
                     vocab=vocab,
-                    predictor_dropout=predictor_dropout,
                     label_smoothing=label_smoothing,
-                    max_seq_len=max_seq_len,
-                    confidence=confidence)
+                    max_seq_len=max_seq_len)
     return model
 
 
@@ -90,11 +84,9 @@ def main(args):
     default_tokens = [DEFAULT_OOV_TOKEN, DEFAULT_PADDING_TOKEN]
     namespaces = ['labels']
     tokens_to_add = {x: default_tokens for x in namespaces}
-    reader = get_data_reader(weights_name, args.max_len, skip_correct=bool(args.skip_correct),
+    reader = get_data_reader(weights_name, args.max_len,
                              test_mode=False,
                              max_pieces_per_token=args.pieces_per_token,
-                             tn_prob=args.tn_prob,
-                             tp_prob=args.tp_prob,
                              special_tokens_fix=args.special_tokens_fix)
 
     train_dataset = reader.read(args.train_set)
@@ -106,8 +98,7 @@ def main(args):
 
     gec_model = get_gec_model(gec_vocab, ged_model,
                       max_seq_len = args.max_len,
-                      label_smoothing=args.label_smoothing,
-                      special_tokens_fix=args.special_tokens_fix)
+                      label_smoothing=args.label_smoothing)
     gec_model.to(device)
 
     print("GEC model is set.")
@@ -116,11 +107,11 @@ def main(args):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=0.1, patience=10)
     iterator = BucketIterator(batch_size=args.batch_size,
-                              sorting_keys=[("tokens", "num_tokens")],
+                              sorting_keys=[("src", "num_tokens")],
                               biggest_batch_first=True)
     iterator.index_with(gec_vocab)
     val_iterator = BucketIterator(batch_size=args.batch_size,
-                                  sorting_keys=[("tokens", "num_tokens")], 
+                                  sorting_keys=[("src", "num_tokens")], 
                                   instances_per_epoch=None)
     val_iterator.index_with(gec_vocab)
 
@@ -195,19 +186,6 @@ if __name__ == '__main__':
                         type=int,
                         help='The size of target vocabularies.',
                         default=10000)  # 1000
-    parser.add_argument('--skip_correct',
-                        type=int,
-                        help='If set than correct sentences will be skipped '
-                             'by data reader.',
-                        default=1)
-    parser.add_argument('--tn_prob',
-                        type=float,
-                        help='The probability to take TN from data.',
-                        default=0)
-    parser.add_argument('--tp_prob',
-                        type=float,
-                        help='The probability to take TP from data.',
-                        default=1)
     parser.add_argument('--pieces_per_token',
                         type=int,
                         help='The max number for pieces per token.',

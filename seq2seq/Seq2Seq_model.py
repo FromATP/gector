@@ -52,7 +52,6 @@ class Seq2Seq(Model):
 
     def __init__(self, ged_model: Model,
                  vocab: Vocabulary,
-                 predictor_dropout=0.0,
                  labels_namespace: str = "labels",
                  verbose_metrics: bool = False,
                  label_smoothing: float = 0.0,
@@ -69,24 +68,18 @@ class Seq2Seq(Model):
         self.label_smoothing = label_smoothing
         self.max_seq_len = max_seq_len
         self.hidden_size = hidden_size
-        self.padding_index = self.vocab.get_token_index(PAD, self.label_namespaces[0])
 
         self._verbose_metrics = verbose_metrics
         self.ged_encoder = AttentionalEncoder(self.ged_model.num_labels_classes,
-                                                self.hidden_size,
-                                                self.ged_model.vocab.get_token_index(PAD, self.ged_model.label_namespaces[0]))
+                                                self.hidden_size)
         self.gec_encoder = AttentionalEncoder(self.num_labels_classes,
-                                                self.hidden_size,
-                                                self.padding_index)
+                                                self.hidden_size)
         self.self_attn = SelfAttentionLayer(self.num_labels_classes,
-                                                self.hidden_size,
-                                                self.padding_index)
+                                                self.hidden_size)
         self.ged_decoder = AttentionalDecoder(self.num_labels_classes,
-                                                self.hidden_size,
-                                                self.padding_index)
+                                                self.hidden_size)
         self.gec_decoder = AttentionalDecoder(self.num_labels_classes,
-                                                self.hidden_size,
-                                                self.padding_index)
+                                                self.hidden_size)
         self.param_learning_layer = TimeDistributed(torch.nn.Linear(2*self.hidden_size, hidden_size))
         self.generator = LinearLayer(self.hidden_size, self.num_labels_classes)
 
@@ -132,21 +125,22 @@ class Seq2Seq(Model):
         """
         if tgt is not None:
             src_padding_mask = get_text_field_mask(src)
-            src_mask = get_square_mask(src)
+            src_mask = get_square_mask(src["bert"])
             tgt_padding_mask = get_text_field_mask(tgt)
-            tgt_mask = get_square_mask(tgt)
+            tgt_mask = get_square_mask(tgt["bert"])
 
             with torch.no_grad():
+                print(src["bert"].shape)
                 ged_output = self.ged_model(src)["class_probabilities_labels"]
                 ged_output = torch.argmax(ged_output, dim=2)
             encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
-            encoded_text = self.gec_encoder(src, src_mask, src_padding_mask)
+            encoded_text = self.gec_encoder(src["bert"], src_mask, src_padding_mask)
 
             batch_size, sequence_length, _ = encoded_text.size()
-            tgt_input = tgt[:, -1, :]
+            tgt_input = tgt["bert"][:, -1, :]
             tgt_input_mask = tgt_mask[:, -1, :]
             tgt_input_padding_mask = tgt_padding_mask[:, -1, :]
-            tgt_output = tgt[:, 1:, :]
+            tgt_output = tgt["bert"][:, 1:, :]
             tgt_output_mask = tgt[:, 1:, :]
 
             tgt_attn = self.self_attn(tgt_input, tgt_input_mask, tgt_input_padding_mask)
@@ -181,13 +175,13 @@ class Seq2Seq(Model):
     def decode(self, src: Dict[str, torch.Tensor]) -> torch.Tensor:
        
         src_padding_mask = get_text_field_mask(src)
-        src_mask = get_square_mask(src)
+        src_mask = get_square_mask(src["bert"])
 
         with torch.no_grad():
             ged_output = self.ged_model(src)["class_probabilities_labels"]
             ged_output = torch.argmax(ged_output, dim=2)
         encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
-        encoded_text = self.gec_encoder(src, src_mask, src_padding_mask)
+        encoded_text = self.gec_encoder(src["bert"], src_mask, src_padding_mask)
         
         batch_size, sequence_length, _ = encoded_text.size()
 
@@ -203,7 +197,7 @@ class Seq2Seq(Model):
             final_res = alpha * decoded_text + (1 - alpha) * decoded_ged_res
             cur_logits = self.generator(final_res[-1, :])
             next_word = torch.argmax(cur_logits)
-            cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src.data).fill_(next_word)], dim=0)
+            cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src["bert"].data).fill_(next_word)], dim=0)
             if self.vocab.get_token_from_index(next_word, self.label_namespaces[0]) == STOP_TOKEN:
                 break
         
