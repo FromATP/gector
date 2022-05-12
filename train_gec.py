@@ -40,8 +40,8 @@ def get_token_indexers(model_name, max_pieces_per_token=5, special_tokens_fix=0)
     return {'bert': bert_token_indexer}
 
 
-def get_data_reader(model_name, max_len, skip_correct=False, test_mode=False,
-                    max_pieces_per_token=3, tn_prob=0, tp_prob=1, special_tokens_fix=0,):
+def get_data_reader(model_name, max_len, test_mode=False,
+                    max_pieces_per_token=3, special_tokens_fix=0,):
     token_indexers = get_token_indexers(model_name,
                                         max_pieces_per_token=max_pieces_per_token,
                                         special_tokens_fix=special_tokens_fix,
@@ -87,13 +87,13 @@ def main(args):
     reader = get_data_reader(weights_name, args.max_len,
                              test_mode=False,
                              max_pieces_per_token=args.pieces_per_token,
-                             special_tokens_fix=args.special_tokens_fix)
+                             special_tokens_fix=1)
 
     train_dataset = reader.read(args.train_set)
     dev_dataset = reader.read(args.dev_set)
     gec_vocab = Vocabulary.from_instances(train_dataset,
-                                        max_vocab_size={'tokens': 30000,
-                                                        'labels': args.target_vocab_size},
+                                        max_vocab_size={'src': 30000,
+                                                        'tgt': args.target_vocab_size},
                                         tokens_to_add=tokens_to_add)
 
     gec_model = get_gec_model(gec_vocab, ged_model,
@@ -161,11 +161,6 @@ if __name__ == '__main__':
                         type=float,
                         help='How many probability to add to $DELETE token.',
                         default=0)
-    parser.add_argument('--special_tokens_fix',
-                        type=int,
-                        help='Whether to fix problem with [CLS], [SEP] tokens tokenization. '
-                             'For reproducing reported results it should be 0 for BERT/XLNet and 1 for RoBERTa.',
-                        default=0)
     parser.add_argument('--ged_model_name',
                         choices=['bert', 'gpt2', 'transformerxl', 'xlnet', 'distilbert', 'roberta', 'albert'
                                  'bert-large', 'roberta-large', 'xlnet-large', 'bert-chn'],
@@ -185,7 +180,7 @@ if __name__ == '__main__':
     parser.add_argument('--target_vocab_size',
                         type=int,
                         help='The size of target vocabularies.',
-                        default=10000)  # 1000
+                        default=30000)  # 1000
     parser.add_argument('--pieces_per_token',
                         type=int,
                         help='The max number for pieces per token.',

@@ -10,7 +10,7 @@ from allennlp.data.vocabulary import Vocabulary
 from overrides import overrides
 from transformers import AutoTokenizer
 
-from utils.helpers import START_TOKEN
+from utils.helpers import START_TOKEN, STOP_TOKEN
 
 from gector.tokenization import tokenize_batch
 import copy
@@ -153,6 +153,8 @@ class PretrainedBertIndexer(TokenizerIndexer):
         if special_tokens_fix:
             model_tokenizer.add_tokens([START_TOKEN])
             model_tokenizer.vocab[START_TOKEN] = len(model_tokenizer) - 1
+            model_tokenizer.add_tokens([STOP_TOKEN])
+            model_tokenizer.vocab[STOP_TOKEN] = len(model_tokenizer) - 1
 
         super().__init__(tokenizer=model_tokenizer,
                          max_pieces=max_pieces,

@@ -52,7 +52,7 @@ class Seq2Seq(Model):
 
     def __init__(self, ged_model: Model,
                  vocab: Vocabulary,
-                 labels_namespace: str = "labels",
+                 labels_namespace: str = "tgt",
                  verbose_metrics: bool = False,
                  label_smoothing: float = 0.0,
                  max_seq_len: int = 150,
@@ -130,7 +130,13 @@ class Seq2Seq(Model):
             tgt_mask = get_square_mask(tgt["bert"])
 
             with torch.no_grad():
-                print(src["bert"].shape)
+                # print(src["bert"].shape)
+                # print(self.vocab.get_token_index(START_TOKEN, "src"))
+                # print(self.vocab.get_token_index(STOP_TOKEN, "src"))
+                # torch.set_printoptions(profile="full")
+                # with open("tmp.txt", "w", encoding="utf-8") as outputfd:
+                #     outputfd.write(str(src))
+                # assert False
                 ged_output = self.ged_model(src)["class_probabilities_labels"]
                 ged_output = torch.argmax(ged_output, dim=2)
             encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
