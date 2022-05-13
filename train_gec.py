@@ -2,6 +2,7 @@ import argparse
 
 import torch
 import os
+from pathlib import Path
 
 from allennlp.data.vocabulary import Vocabulary
 from allennlp.data.iterators import BucketIterator
@@ -53,11 +54,12 @@ def get_data_reader(model_name, max_len, test_mode=False,
     return reader
 
 
-def get_gec_model(vocab, ged_model,
+def get_gec_model(vocab, ged_model, vocab_dict,
                     max_seq_len = 150,
                     label_smoothing=0.0):
     model = Seq2Seq(ged_model=ged_model,
                     vocab=vocab,
+                    vocab_to_id=vocab_dict,
                     label_smoothing=label_smoothing,
                     max_seq_len=max_seq_len)
     return model
@@ -95,8 +97,13 @@ def main(args):
                                         max_vocab_size={'tokens': 30000,
                                                         'labels': args.target_vocab_size},
                                         tokens_to_add=tokens_to_add)
-                                        
-    gec_model = get_gec_model(gec_vocab, ged_model,
+    vocab_dict = reader._token_indexers['bert'].tokenizer.vocab
+    vocab_path = Path(args.gec_model_dir) / 'vocabulary'
+    vocab_path.mkdir(exist_ok=True, parents=True)
+    with open(vocab_path / 'vocab.txt', "w", encoding="utf-8") as outputfd:
+        outputfd.write(str(vocab_dict))
+
+    gec_model = get_gec_model(gec_vocab, ged_model, vocab_dict,
                       max_seq_len = args.max_len,
                       label_smoothing=args.label_smoothing)
     gec_model.to(device)
