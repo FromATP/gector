@@ -13,7 +13,7 @@ from allennlp.training.metrics import CategoricalAccuracy
 from overrides import overrides
 
 from utils.helpers import START_TOKEN, STOP_TOKEN, PAD
-from seq2seq.modules import get_square_mask
+from seq2seq.modules import get_square_mask, remove_redudant
 from seq2seq.modules import AttentionalEncoder, SelfAttentionLayer, AttentionalDecoder, LinearLayer
 
 @Model.register("seq2seq")
@@ -52,7 +52,7 @@ class Seq2Seq(Model):
 
     def __init__(self, ged_model: Model,
                  vocab: Vocabulary,
-                 labels_namespace: str = "tgt",
+                 labels_namespace: str = "labels",
                  verbose_metrics: bool = False,
                  label_smoothing: float = 0.0,
                  max_seq_len: int = 150,
@@ -90,8 +90,8 @@ class Seq2Seq(Model):
 
     @overrides
     def forward(self,  # type: ignore
-                src: Dict[str, torch.LongTensor],
-                tgt: Dict[str, torch.LongTensor] = None,
+                tokens: Dict[str, torch.LongTensor],
+                labels: Dict[str, torch.LongTensor] = None,
                 src_metadata: List[Dict[str, Any]] = None,
                 tgt_metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
@@ -123,31 +123,30 @@ class Seq2Seq(Model):
             A scalar loss to be optimised.
 
         """
-        if tgt is not None:
-            src_padding_mask = get_text_field_mask(src)
-            src_mask = get_square_mask(src["bert"])
-            tgt_padding_mask = get_text_field_mask(tgt)
-            tgt_mask = get_square_mask(tgt["bert"])
+        src_padding_mask = get_text_field_mask(tokens)
+        src_select = remove_redudant(tokens["bert"])
+        src_mask = get_square_mask(src_select)
 
-            with torch.no_grad():
-                # print(src["bert"].shape)
-                # print(self.vocab.get_token_index(START_TOKEN, "src"))
-                # print(self.vocab.get_token_index(STOP_TOKEN, "src"))
-                # torch.set_printoptions(profile="full")
-                # with open("tmp.txt", "w", encoding="utf-8") as outputfd:
-                #     outputfd.write(str(src))
-                # assert False
-                ged_output = self.ged_model(src)["class_probabilities_labels"]
-                ged_output = torch.argmax(ged_output, dim=2)
-            encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
-            encoded_text = self.gec_encoder(src["bert"], src_mask, src_padding_mask)
+        # ESSENTIAL：ged模型的indexer将$START拆成了两个token：$和START。在embedder之后只保留了其中一个的结果
+        # 这导致ged output和tokens['bert']的seq_len不一样，后者多2（两个$）
+        # 按照逻辑，在做gec任务的时候只需要保留start和stop，把$去掉。
+        with torch.no_grad():
+            ged_output = self.ged_model(tokens)["class_probabilities_labels"]
+            ged_output = torch.argmax(ged_output, dim=2)
+        encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
+        encoded_text = self.gec_encoder(src_select, src_mask, src_padding_mask)
+
+        if labels is not None:
+            tgt_padding_mask = get_text_field_mask(labels)
+            tgt_select = remove_redudant(labels["bert"])
+            tgt_mask = get_square_mask(tgt_select)
 
             batch_size, sequence_length, _ = encoded_text.size()
-            tgt_input = tgt["bert"][:, -1, :]
+            tgt_input = tgt_select[:, -1, :]
             tgt_input_mask = tgt_mask[:, -1, :]
             tgt_input_padding_mask = tgt_padding_mask[:, -1, :]
-            tgt_output = tgt["bert"][:, 1:, :]
-            tgt_output_mask = tgt[:, 1:, :]
+            tgt_output = tgt_select[:, 1:, :]
+            tgt_output_mask = labels[:, 1:, :]
 
             tgt_attn = self.self_attn(tgt_input, tgt_input_mask, tgt_input_padding_mask)
             decoded_ged_res = self.ged_decoder(tgt_attn, encoded_ged_res, tgt_mask, tgt_input_padding_mask)
@@ -178,16 +177,17 @@ class Seq2Seq(Model):
         return output_dict
 
     @overrides
-    def decode(self, src: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def decode(self, tokens: Dict[str, torch.Tensor]) -> torch.Tensor:
        
-        src_padding_mask = get_text_field_mask(src)
-        src_mask = get_square_mask(src["bert"])
+        src_padding_mask = get_text_field_mask(tokens)
+        src_select = remove_redudant(tokens["bert"])
+        src_mask = get_square_mask(src_select)
 
         with torch.no_grad():
-            ged_output = self.ged_model(src)["class_probabilities_labels"]
+            ged_output = self.ged_model(tokens)["class_probabilities_labels"]
             ged_output = torch.argmax(ged_output, dim=2)
         encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
-        encoded_text = self.gec_encoder(src["bert"], src_mask, src_padding_mask)
+        encoded_text = self.gec_encoder(src_select, src_mask, src_padding_mask)
         
         batch_size, sequence_length, _ = encoded_text.size()
 
@@ -203,7 +203,7 @@ class Seq2Seq(Model):
             final_res = alpha * decoded_text + (1 - alpha) * decoded_ged_res
             cur_logits = self.generator(final_res[-1, :])
             next_word = torch.argmax(cur_logits)
-            cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src["bert"].data).fill_(next_word)], dim=0)
+            cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src_select.data).fill_(next_word)], dim=0)
             if self.vocab.get_token_from_index(next_word, self.label_namespaces[0]) == STOP_TOKEN:
                 break
         

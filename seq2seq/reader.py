@@ -82,6 +82,10 @@ class Seq2SeqDataReader(DatasetReader):
                     src_tokens = [Token(START_TOKEN)] + src_tokens
                 if tgt_tokens and tgt_tokens[0] != Token(START_TOKEN):
                     tgt_tokens = [Token(START_TOKEN)] + tgt_tokens
+                if src_tokens and src_tokens[-1] != Token(STOP_TOKEN):
+                    src_tokens = [Token(STOP_TOKEN)] + src_tokens
+                if tgt_tokens and tgt_tokens[-1] != Token(STOP_TOKEN):
+                    tgt_tokens = [Token(STOP_TOKEN)] + tgt_tokens
 
                 src_words = [x.text for x in src_tokens]
                 tgt_words = [x.text for x in tgt_tokens]
@@ -102,11 +106,11 @@ class Seq2SeqDataReader(DatasetReader):
         fields: Dict[str, Field] = {}
 
         src_sequence = TextField(src_tokens, self._token_indexers)
-        fields["src"] = src_sequence
+        fields["tokens"] = src_sequence
         fields["src_metadata"] = MetadataField({"words": src_words})
 
         tgt_sequence = TextField(tgt_tokens, self._token_indexers)
-        fields["tgt"] = tgt_sequence
+        fields["labels"] = tgt_sequence
         fields["tgt_metadata"] = MetadataField({"words": tgt_words})
 
         return Instance(fields)

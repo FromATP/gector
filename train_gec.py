@@ -82,7 +82,7 @@ def main(args):
     print("GED model is set.")
 
     default_tokens = [DEFAULT_OOV_TOKEN, DEFAULT_PADDING_TOKEN]
-    namespaces = ['labels']
+    namespaces = ['tokens', 'labels']
     tokens_to_add = {x: default_tokens for x in namespaces}
     reader = get_data_reader(weights_name, args.max_len,
                              test_mode=False,
@@ -92,10 +92,10 @@ def main(args):
     train_dataset = reader.read(args.train_set)
     dev_dataset = reader.read(args.dev_set)
     gec_vocab = Vocabulary.from_instances(train_dataset,
-                                        max_vocab_size={'src': 30000,
-                                                        'tgt': args.target_vocab_size},
+                                        max_vocab_size={'tokens': 30000,
+                                                        'labels': args.target_vocab_size},
                                         tokens_to_add=tokens_to_add)
-
+                                        
     gec_model = get_gec_model(gec_vocab, ged_model,
                       max_seq_len = args.max_len,
                       label_smoothing=args.label_smoothing)
@@ -107,11 +107,11 @@ def main(args):
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, factor=0.1, patience=10)
     iterator = BucketIterator(batch_size=args.batch_size,
-                              sorting_keys=[("src", "num_tokens")],
+                              sorting_keys=[("tokens", "num_tokens")],
                               biggest_batch_first=True)
     iterator.index_with(gec_vocab)
     val_iterator = BucketIterator(batch_size=args.batch_size,
-                                  sorting_keys=[("src", "num_tokens")], 
+                                  sorting_keys=[("tokens", "num_tokens")], 
                                   instances_per_epoch=None)
     val_iterator.index_with(gec_vocab)
 
