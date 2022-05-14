@@ -131,7 +131,8 @@ class Seq2Seq(Model):
             A scalar loss to be optimised.
 
         """
-        src_padding_mask = get_text_field_mask(tokens)
+        # ESSENTIAL: pytorch transformer的padding mask是“true表示ignore”，与get_text_field_mask的意义相反
+        src_padding_mask = 1 - get_text_field_mask(tokens)
         src_select = remove_redudant(tokens["bert"])
         src_mask = get_src_mask(src_select)
 
@@ -145,20 +146,20 @@ class Seq2Seq(Model):
         encoded_text = self.gec_encoder(src_select, src_mask, src_padding_mask)
 
         if labels is not None:
-            tgt_padding_mask = get_text_field_mask(labels)
+            tgt_padding_mask = 1 - get_text_field_mask(labels)
             tgt_select = remove_redudant(labels["bert"])
             tgt_mask = get_tgt_mask(tgt_select)
 
             batch_size, sequence_length, _ = encoded_text.size()
-            tgt_input = tgt_select[:, -1, :]
-            tgt_input_mask = tgt_mask[:, -1, :]
-            tgt_input_padding_mask = tgt_padding_mask[:, -1, :]
-            tgt_output = tgt_select[:, 1:, :]
-            tgt_output_mask = labels[:, 1:, :]
+            tgt_input = tgt_select[:, :-1]
+            tgt_input_mask = tgt_mask[:-1, :-1]
+            tgt_input_padding_mask = tgt_padding_mask[:, :-1]
+            tgt_output = tgt_select[:, 1:]
+            tgt_output_mask = tgt_mask[1:, 1:]
 
             tgt_attn = self.self_attn(tgt_input, tgt_input_mask, tgt_input_padding_mask)
-            decoded_ged_res = self.ged_decoder(tgt_attn, encoded_ged_res, tgt_mask, tgt_input_padding_mask)
-            decoded_text = self.gec_decoder(tgt_attn, encoded_text, tgt_mask, tgt_input_padding_mask)
+            decoded_ged_res = self.ged_decoder(tgt_attn, encoded_ged_res, tgt_input_mask, tgt_input_padding_mask)
+            decoded_text = self.gec_decoder(tgt_attn, encoded_text, tgt_input_mask, tgt_input_padding_mask)
 
             concat_res = torch.cat([decoded_text, decoded_ged_res], dim=2)
             alpha = F.sigmoid(self.param_learning_layer(concat_res))
@@ -187,7 +188,7 @@ class Seq2Seq(Model):
     @overrides
     def decode(self, tokens: Dict[str, torch.Tensor]) -> torch.Tensor:
        
-        src_padding_mask = get_text_field_mask(tokens)
+        src_padding_mask = 1 - get_text_field_mask(tokens)
         src_select = remove_redudant(tokens["bert"])
         src_mask = get_src_mask(src_select)
 

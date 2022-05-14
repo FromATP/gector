@@ -57,8 +57,8 @@ class AttentionalEncoder(nn.Module):
         self.encoder_layer = nn.TransformerEncoderLayer(d_model=output_dim, nhead=8, batch_first=True)
         self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=4)
 
-    def forward(self, tokens: torch.Tensor, mask: torch.Tensor, padding_mask: torch.Tensor=None):
-        word_rep = self.embedding_layer(tokens.long())
+    def forward(self, tokens: torch.LongTensor, mask: torch.Tensor, padding_mask: torch.Tensor=None):
+        word_rep = self.embedding_layer(tokens)
         word_rep = self.pos_encoder(word_rep)
         outputs = self.transformer_encoder(word_rep, mask, src_key_padding_mask=padding_mask)
         return outputs
@@ -72,12 +72,12 @@ class SelfAttentionLayer(nn.Module):
         self.pos_encoder = PositionalEncoding(output_dim, dropout=0.5)
         self.attn = nn.MultiheadAttention(output_dim, num_heads=8, dropout=0.1, batch_first=True)
     
-    def forward(self, tokens: torch.Tensor, mask: torch.Tensor, padding_mask: torch.Tensor=None):
-        word_rep = self.embedding_layer(tokens.long())
+    def forward(self, tokens: torch.LongTensor, mask: torch.Tensor, padding_mask: torch.Tensor=None):
+        word_rep = self.embedding_layer(tokens)
         word_rep = self.pos_encoder(word_rep)
-        outputs = self.attn(word_rep, word_rep, word_rep, 
+        outputs, _ = self.attn(word_rep, word_rep, word_rep, 
                             attn_mask=mask, 
-                            key_padding_mask=padding_mask, 
+                            key_padding_mask=padding_mask.to(dtype=torch.bool), 
                             need_weights=False)
         return outputs
 
@@ -90,7 +90,9 @@ class AttentionalDecoder(nn.Module):
         self.transformer_decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=4)
     
     def forward(self, word_rep: torch.Tensor, memory: torch.Tensor, mask: torch.Tensor, padding_mask: torch.Tensor=None):
-        outputs = self.transformer_decoder(word_rep, memory, mask, src_key_padding_mask=padding_mask)
+        outputs = self.transformer_decoder(word_rep, memory, 
+                                            tgt_mask=mask, 
+                                            tgt_key_padding_mask=padding_mask.to(dtype=torch.bool))
         return outputs
 
 
