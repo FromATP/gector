@@ -77,7 +77,7 @@ class SelfAttentionLayer(nn.Module):
         word_rep = self.pos_encoder(word_rep)
         outputs, _ = self.attn(word_rep, word_rep, word_rep, 
                             attn_mask=mask, 
-                            key_padding_mask=padding_mask.to(dtype=torch.bool), 
+                            key_padding_mask=padding_mask, 
                             need_weights=False)
         return outputs
 
@@ -92,7 +92,7 @@ class AttentionalDecoder(nn.Module):
     def forward(self, word_rep: torch.Tensor, memory: torch.Tensor, mask: torch.Tensor, padding_mask: torch.Tensor=None):
         outputs = self.transformer_decoder(word_rep, memory, 
                                             tgt_mask=mask, 
-                                            tgt_key_padding_mask=padding_mask.to(dtype=torch.bool))
+                                            tgt_key_padding_mask=padding_mask)
         return outputs
 
 
