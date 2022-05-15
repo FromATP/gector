@@ -83,9 +83,9 @@ class Seq2SeqDataReader(DatasetReader):
                 if tgt_tokens and tgt_tokens[0] != Token(START_TOKEN):
                     tgt_tokens = [Token(START_TOKEN)] + tgt_tokens
                 if src_tokens and src_tokens[-1] != Token(STOP_TOKEN):
-                    src_tokens = [Token(STOP_TOKEN)] + src_tokens
+                    src_tokens = src_tokens + [Token(STOP_TOKEN)]
                 if tgt_tokens and tgt_tokens[-1] != Token(STOP_TOKEN):
-                    tgt_tokens = [Token(STOP_TOKEN)] + tgt_tokens
+                    tgt_tokens = tgt_tokens + [Token(STOP_TOKEN)]
 
                 src_words = [x.text for x in src_tokens]
                 tgt_words = [x.text for x in tgt_tokens]

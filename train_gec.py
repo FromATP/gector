@@ -55,7 +55,7 @@ def get_data_reader(model_name, max_len, test_mode=False,
 
 
 def get_gec_model(vocab, ged_model, vocab_dict,
-                    max_seq_len = 150,
+                    max_seq_len = 300,
                     label_smoothing=0.0):
     model = Seq2Seq(ged_model=ged_model,
                     vocab=vocab,
@@ -183,7 +183,7 @@ if __name__ == '__main__':
                         type=int,
                         help='The max sentence length'
                              '(all longer will be truncated)',
-                        default=150)
+                        default=300)
     parser.add_argument('--target_vocab_size',
                         type=int,
                         help='The size of target vocabularies.',

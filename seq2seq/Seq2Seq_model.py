@@ -56,7 +56,7 @@ class Seq2Seq(Model):
                  labels_namespace: str = "labels",
                  verbose_metrics: bool = False,
                  label_smoothing: float = 0.0,
-                 max_seq_len: int = 150,
+                 max_seq_len: int = 300,
                  hidden_size: int=512,
                  initializer: InitializerApplicator = InitializerApplicator(),
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
