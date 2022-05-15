@@ -3,6 +3,7 @@ from typing import Dict, Optional, List, Any
 
 import torch
 import torch.nn.functional as F
+from tqdm import Tqdm
 
 from allennlp.data import Vocabulary
 from allennlp.models.model import Model
@@ -182,10 +183,10 @@ class Seq2Seq(Model):
             output_dict["words"] = [x["words"] for x in src_metadata]
         if tgt_metadata is not None:
             output_dict["words"] = [x["words"] for x in tgt_metadata]
-        return output_dict
+        return output_dict 
 
     @overrides
-    def decode(self, tokens: Dict[str, torch.Tensor]) -> torch.Tensor:
+    def decode(self, tokens: Dict[str, torch.Tensor]):
        
         src_padding_mask = 1 - get_text_field_mask(tokens)
         src_padding_mask = src_padding_mask.to(dtype=torch.bool)
@@ -195,28 +196,39 @@ class Seq2Seq(Model):
         with torch.no_grad():
             ged_output = self.ged_model(tokens)["class_probabilities_labels"]
             ged_output = torch.argmax(ged_output, dim=2)
-        encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
-        encoded_text = self.gec_encoder(src_select, src_mask, src_padding_mask)
-        
-        batch_size, sequence_length, _ = encoded_text.size()
 
-        cur_tgt = torch.ones(1, 1).fill_(self.start_id).type(torch.long).to(encoded_text.device)
-        for i in range(self.max_seq_len):
-            cur_tgt_mask = (get_tgt_mask(cur_tgt).type(torch.bool)).to(cur_tgt.device)
-            tgt_attn = self.self_attn(cur_tgt, cur_tgt_mask)
-            decoded_ged_res = self.ged_decoder(tgt_attn, encoded_ged_res, cur_tgt_mask)
-            decoded_text = self.gec_decoder(tgt_attn, encoded_text, cur_tgt_mask)
+            encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
+            encoded_text = self.gec_encoder(src_select, src_mask, src_padding_mask)
             
-            concat_res = torch.cat([decoded_text, decoded_ged_res], dim=2)
-            alpha = F.sigmoid(self.param_learning_layer(concat_res))
-            final_res = alpha * decoded_text + (1 - alpha) * decoded_ged_res
-            cur_logits = self.generator(final_res[:, -1:, :])
-            next_word = torch.argmax(cur_logits, dim=2)[0][0]
-            cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src_select.data).fill_(next_word)], dim=1)
-            if next_word == self.stop_id:
-                break
-        
-        return cur_tgt
+            batch_size, sequence_length, _ = encoded_text.size()
+
+            ids = []
+            words = []
+            for k in Tqdm.tqdm(range(batch_size)):
+                cur_ged_res = encoded_ged_res[k][None, :, :]
+                cur_text = encoded_text[k][None, :, :]
+                cur_tgt = torch.ones(1, 1).fill_(self.start_id).type(torch.long).to(encoded_text.device)
+                for i in range(self.max_seq_len):
+                    cur_tgt_mask = (get_tgt_mask(cur_tgt).type(torch.bool)).to(cur_tgt.device)
+                    tgt_attn = self.self_attn(cur_tgt, cur_tgt_mask)
+                    decoded_ged_res = self.ged_decoder(tgt_attn, cur_ged_res, cur_tgt_mask)
+                    decoded_text = self.gec_decoder(tgt_attn, cur_text, cur_tgt_mask)
+                    
+                    concat_res = torch.cat([decoded_text, decoded_ged_res], dim=2)
+                    alpha = F.sigmoid(self.param_learning_layer(concat_res))
+                    final_res = alpha * decoded_text + (1 - alpha) * decoded_ged_res
+                    cur_logits = self.generator(final_res[:, -1:, :])
+                    next_word = torch.argmax(cur_logits, dim=2)[0][0]
+                    cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src_select.data).fill_(next_word)], dim=1)
+                    if next_word == self.stop_id:
+                        break
+                    
+                cur_tgt = cur_tgt.cpu().tolist()[0]
+                decoded_sent = [self.id_to_vocab[i] for i in cur_tgt]
+                ids.append(cur_tgt)
+                words.append(decoded_sent)
+
+        return words, ids
 
     @overrides
     def get_metrics(self, reset: bool = False) -> Dict[str, float]:

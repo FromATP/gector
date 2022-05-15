@@ -7,6 +7,7 @@ import time
 import copy
 import os
 
+from pathlib import Path
 from typing import Dict, Optional, List, Tuple, Union, Iterable, Any
 
 import torch
@@ -454,7 +455,7 @@ class Trainer(TrainerBase):
             metrics["gpu_" + str(gpu_num) + "_memory_MB"] = memory
         return metrics
 
-    def _validation_loss(self) -> Tuple[float, int]:
+    def _validation_loss(self, epoch) -> Tuple[float, int]:
         """
         Computes the validation loss. Returns it and the number of batches.
         """
@@ -482,8 +483,16 @@ class Trainer(TrainerBase):
         batches_this_epoch = 0
         batch_num_total = 0
         val_loss = 0
+        output_batch = None
+        decoded_sent = []
+        decoded_id = []
         with Tqdm.tqdm(val_generator, total=num_validation_batches, ncols=75) as val_generator_tqdm:
             for batch_group in val_generator_tqdm:
+                if batch_num_total == 0:
+                    output_batch = batch_group[0]
+                    output_batch = nn_util.move_to_device(output_batch, self._cuda_devices[0])
+                    decoded_sent, decoded_id = self.model.decode(output_batch["tokens"])
+                
                 batch_num_total += 1
                 try:
                     loss = self.batch_loss(batch_group, for_training=False)
@@ -505,6 +514,18 @@ class Trainer(TrainerBase):
                 description = training_util.description_from_metrics(val_metrics)
                 
                 val_generator_tqdm.set_description(description, refresh=False)
+
+        decode_res_path = Path(self._serialization_dir)
+        assert decode_res_path.exists(), "serialization path does not exist!"
+        decode_res_path = decode_res_path / 'val_result'
+        decode_res_path.mkdir(exist_ok=True, parents=True)
+        decode_res_path = decode_res_path / f'{epoch}_val.txt'
+        with open(decode_res_path, "w", encoding="utf-8") as outputfd:
+            outputfd.write("original batch:\n")
+            outputfd.write(str(output_batch))
+            outputfd.write("\n\ndecoded_results:\n")
+            outputfd.write(str(decoded_sent))
+            outputfd.write(str(decoded_id))
 
         # Now restore the original parameter values.
         if self._moving_average is not None:
@@ -573,7 +594,7 @@ class Trainer(TrainerBase):
             if self._validation_data is not None:
                 with torch.no_grad():
                     # We have a validation set, so compute all the metrics on it.
-                    val_loss, num_batches = self._validation_loss()
+                    val_loss, num_batches = self._validation_loss(epoch)
                     val_metrics = training_util.get_metrics(
                         self.model, val_loss, num_batches, reset=True
                     )
