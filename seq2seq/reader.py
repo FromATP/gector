@@ -54,7 +54,7 @@ class Seq2SeqDataReader(DatasetReader):
         self._max_len = max_len
         self._broken_dot_strategy = broken_dot_strategy
         self._test_mode = test_mode
-        self._private_vocab = {'start': 1, 'stop': 2, START_TOKEN: 3, STOP_TOKEN: 4}
+        self._private_vocab = {' ': 0, 'start': 1, 'stop': 2, START_TOKEN: 3, STOP_TOKEN: 4}
         self._private_vocab_cnt = 4
 
     @overrides

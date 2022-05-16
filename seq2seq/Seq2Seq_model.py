@@ -66,7 +66,7 @@ class Seq2Seq(Model):
         self.ged_model = ged_model
 
         self.label_namespaces = [labels_namespace]
-        self.num_labels_classes = len(local_vocab) + 1
+        self.num_labels_classes = len(local_vocab)
         self.label_smoothing = label_smoothing
         self.max_seq_len = max_seq_len
         self.hidden_size = hidden_size
