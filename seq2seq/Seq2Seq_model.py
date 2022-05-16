@@ -3,7 +3,7 @@ from typing import Dict, Optional, List, Any
 
 import torch
 import torch.nn.functional as F
-from tqdm import Tqdm
+from tqdm import tqdm
 
 from allennlp.data import Vocabulary
 from allennlp.models.model import Model
@@ -172,7 +172,7 @@ class Seq2Seq(Model):
 
             output_dict = {"logits": output_logits,
                         "probabilities": output_prob}
-            loss = sequence_cross_entropy_with_logits(output_logits, tgt_output, tgt_output_padding_mask,
+            loss = sequence_cross_entropy_with_logits(output_logits, tgt_output, ~tgt_output_padding_mask,
                                                         label_smoothing=self.label_smoothing)
             
             for metric in self.metrics.values():
@@ -204,7 +204,7 @@ class Seq2Seq(Model):
 
             ids = []
             words = []
-            for k in Tqdm.tqdm(range(batch_size)):
+            for k in tqdm(range(batch_size)):
                 cur_ged_res = encoded_ged_res[k][None, :, :]
                 cur_text = encoded_text[k][None, :, :]
                 cur_tgt = torch.ones(1, 1).fill_(self.start_id).type(torch.long).to(encoded_text.device)
