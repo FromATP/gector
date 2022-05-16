@@ -66,12 +66,11 @@ class Seq2Seq(Model):
         self.ged_model = ged_model
 
         self.label_namespaces = [labels_namespace]
-        self.num_labels_classes = len(local_vocab)
+        self.num_labels_classes = len(local_vocab) + 1
         self.label_smoothing = label_smoothing
         self.max_seq_len = max_seq_len
         self.hidden_size = hidden_size
         self.local_vocab = local_vocab
-        self.local_emb_size = len(local_vocab)
 
         self.id_to_vocab = dict(zip(local_vocab.values(), local_vocab.keys()))
 
@@ -81,9 +80,9 @@ class Seq2Seq(Model):
         self._verbose_metrics = verbose_metrics
         self.ged_encoder = AttentionalEncoder(self.ged_model.num_labels_classes,
                                                 self.hidden_size)
-        self.gec_encoder = AttentionalEncoder(self.local_emb_size,
+        self.gec_encoder = AttentionalEncoder(self.num_labels_classes,
                                                 self.hidden_size)
-        self.self_attn = SelfAttentionLayer(self.local_emb_size,
+        self.self_attn = SelfAttentionLayer(self.num_labels_classes,
                                                 self.hidden_size)
         self.ged_decoder = AttentionalDecoder(self.hidden_size)
         self.gec_decoder = AttentionalDecoder(self.hidden_size)
