@@ -280,7 +280,7 @@ class Trainer(TrainerBase):
             batch = batch_group[0]
             batch = nn_util.move_to_device(batch, self._cuda_devices[0])
             output_dict = self.model(**batch)
-            # output = self.model.decode(batch["tokens"])
+            # output = self.model.decode(batch["tokens"], batch["src_local"])
             # this decode can get decoded sentence ids
 
         try:
@@ -491,7 +491,7 @@ class Trainer(TrainerBase):
                 if batch_num_total == 0:
                     output_batch = batch_group[0]
                     output_batch = nn_util.move_to_device(output_batch, self._cuda_devices[0])
-                    decoded_sent, decoded_id = self.model.decode(output_batch["tokens"])
+                    decoded_sent, decoded_id = self.model.decode(output_batch["tokens"], output_batch["src_local"])
                 
                 batch_num_total += 1
                 try:

@@ -15,7 +15,7 @@ def get_smaller_vocab(iterator, train_dataset):
     raw_train_generator = iterator(train_dataset, num_epochs=1, shuffle=True)
     train_generator = lazy_groups_of(raw_train_generator, 1)
     total = iterator.get_num_batches(train_dataset)
-    output_list = {}
+    output_list = []
     for batch_group in Tqdm.tqdm(train_generator, total=total, ncols=75):
         batch = batch_group[0]
         output_list = count(batch["src_metadata"], output_list)

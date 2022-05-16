@@ -54,12 +54,12 @@ def get_data_reader(model_name, max_len, test_mode=False,
     return reader
 
 
-def get_gec_model(vocab, ged_model, vocab_list,
+def get_gec_model(vocab, ged_model, local_vocab,
                     max_seq_len = 300,
                     label_smoothing=0.0):
     model = Seq2Seq(ged_model=ged_model,
                     vocab=vocab,
-                    vocab_list=vocab_list,
+                    local_vocab=local_vocab,
                     label_smoothing=label_smoothing,
                     max_seq_len=max_seq_len)
     return model
@@ -107,14 +107,14 @@ def main(args):
                                   instances_per_epoch=None)
     val_iterator.index_with(gec_vocab)
 
-    vocab_list = get_smaller_vocab(iterator, train_dataset)
+    local_vocab = reader._private_vocab
     vocab_path = Path(args.gec_model_dir) / 'vocabulary'
     vocab_path.mkdir(exist_ok=True, parents=True)
     with open(vocab_path / 'vocab.txt', "w", encoding="utf-8") as outputfd:
-        outputfd.write(str(vocab_list))
-    print(f'vocab size: {len(vocab_list)}')
+        outputfd.write(str(local_vocab))
+    print(f'vocab size: {len(local_vocab)}')
 
-    gec_model = get_gec_model(gec_vocab, ged_model, vocab_list,
+    gec_model = get_gec_model(gec_vocab, ged_model, local_vocab,
                       max_seq_len = args.max_len,
                       label_smoothing=args.label_smoothing)
     gec_model.to(device)

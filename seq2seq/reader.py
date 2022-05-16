@@ -1,10 +1,11 @@
 import logging
 import re
 
+import numpy as np
 from random import random
 from typing import Dict, List
 
-from allennlp.data.fields import TextField, SequenceLabelField, MetadataField, Field
+from allennlp.data.fields import TextField, SequenceLabelField, MetadataField, Field, ArrayField
 from allennlp.data.token_indexers import TokenIndexer, SingleIdTokenIndexer
 from allennlp.data.dataset_readers.dataset_reader import DatasetReader
 from allennlp.common.file_utils import cached_path
@@ -53,6 +54,8 @@ class Seq2SeqDataReader(DatasetReader):
         self._max_len = max_len
         self._broken_dot_strategy = broken_dot_strategy
         self._test_mode = test_mode
+        self._private_vocab = {'start': 1, 'stop': 2, START_TOKEN: 3, STOP_TOKEN: 4}
+        self._private_vocab_cnt = 4
 
     @overrides
     def _read(self, file_path):
@@ -74,9 +77,21 @@ class Seq2SeqDataReader(DatasetReader):
                 try:
                     src_tokens = [Token(token) for token in src]
                     tgt_tokens = [Token(token) for token in tgt]
+                    for token in src:
+                        if token not in self._private_vocab:
+                            self._private_vocab_cnt += 1
+                            self._private_vocab[token] = self._private_vocab_cnt
+                    for token in tgt:
+                        if token not in self._private_vocab:
+                            self._private_vocab_cnt += 1
+                            self._private_vocab[token] = self._private_vocab_cnt
                 except ValueError:
                     src_tokens = [Token(token) for token in src]
                     tgt_tokens = None
+                    for token in src:
+                        if token not in self._private_vocab:
+                            self._private_vocab_cnt += 1
+                            self._private_vocab[token] = self._private_vocab_cnt
 
                 if src_tokens and src_tokens[0] != Token(START_TOKEN):
                     src_tokens = [Token(START_TOKEN)] + src_tokens
@@ -89,16 +104,21 @@ class Seq2SeqDataReader(DatasetReader):
 
                 src_words = [x.text for x in src_tokens]
                 tgt_words = [x.text for x in tgt_tokens]
+                src_local = np.array([self._private_vocab[x] for x in src])
+                tgt_local = np.array([self._private_vocab[x] for x in tgt])
                 if self._max_len is not None:
                     src_tokens = src_tokens[:self._max_len]
                     tgt_tokens = None if tgt_tokens is None else tgt_tokens[:self._max_len]
-                instance = self.text_to_instance(src_tokens, tgt_tokens, src_words, tgt_words)
+                instance = self.text_to_instance(src_tokens, tgt_tokens,
+                                                    src_words, tgt_words,
+                                                    src_local, tgt_local)
                 if instance:
                     yield instance
 
 
     def text_to_instance(self, src_tokens: List[Token], tgt_tokens: List[Token],
-                         src_words: List[str] = None, tgt_words: List[str] = None) -> Instance:  # type: ignore
+                         src_words: List[str] = None, tgt_words: List[str] = None,
+                         src_local=None, tgt_local=None) -> Instance:  # type: ignore
         """
         We take `pre-tokenized` input here, because we don't have a tokenizer in this class.
         """
@@ -108,9 +128,11 @@ class Seq2SeqDataReader(DatasetReader):
         src_sequence = TextField(src_tokens, self._token_indexers)
         fields["tokens"] = src_sequence
         fields["src_metadata"] = MetadataField({"words": src_words})
+        fields["src_local"] = ArrayField(src_local, dtype = src_local.dtype)
 
         tgt_sequence = TextField(tgt_tokens, self._token_indexers)
         fields["labels"] = tgt_sequence
         fields["tgt_metadata"] = MetadataField({"words": tgt_words})
+        fields["tgt_local"] = ArrayField(tgt_local, dtype = tgt_local.dtype)
 
         return Instance(fields)

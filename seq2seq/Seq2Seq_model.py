@@ -53,7 +53,7 @@ class Seq2Seq(Model):
 
     def __init__(self, ged_model: Model,
                  vocab: Vocabulary,
-                 vocab_list: List,
+                 local_vocab: List,
                  labels_namespace: str = "labels",
                  verbose_metrics: bool = False,
                  label_smoothing: float = 0.0,
@@ -66,20 +66,24 @@ class Seq2Seq(Model):
         self.ged_model = ged_model
 
         self.label_namespaces = [labels_namespace]
-        self.num_labels_classes = len(vocab_list)
+        self.num_labels_classes = len(local_vocab)
         self.label_smoothing = label_smoothing
         self.max_seq_len = max_seq_len
         self.hidden_size = hidden_size
+        self.local_vocab = local_vocab
+        self.local_emb_size = len(local_vocab)
 
-        self.start_id = self.vocab_list.index('start')
-        self.stop_id = self.vocab_list.index('stop')
+        self.id_to_vocab = dict(zip(local_vocab.values(), local_vocab.keys()))
+
+        self.start_id = self.local_vocab['start']
+        self.stop_id = self.local_vocab['stop']
 
         self._verbose_metrics = verbose_metrics
         self.ged_encoder = AttentionalEncoder(self.ged_model.num_labels_classes,
                                                 self.hidden_size)
-        self.gec_encoder = AttentionalEncoder(self.num_labels_classes,
+        self.gec_encoder = AttentionalEncoder(self.local_emb_size,
                                                 self.hidden_size)
-        self.self_attn = SelfAttentionLayer(self.num_labels_classes,
+        self.self_attn = SelfAttentionLayer(self.local_emb_size,
                                                 self.hidden_size)
         self.ged_decoder = AttentionalDecoder(self.hidden_size)
         self.gec_decoder = AttentionalDecoder(self.hidden_size)
@@ -96,7 +100,9 @@ class Seq2Seq(Model):
                 tokens: Dict[str, torch.LongTensor],
                 labels: Dict[str, torch.LongTensor] = None,
                 src_metadata: List[Dict[str, Any]] = None,
-                tgt_metadata: List[Dict[str, Any]] = None) -> Dict[str, torch.Tensor]:
+                tgt_metadata: List[Dict[str, Any]] = None,
+                src_local:torch.LongTensor = None,
+                tgt_local:torch.LongTensor = None) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
         """
         Parameters
@@ -129,8 +135,8 @@ class Seq2Seq(Model):
         # ESSENTIAL: pytorch transformer的padding mask是“true表示ignore”，与get_text_field_mask的意义相反
         src_padding_mask = 1 - get_text_field_mask(tokens)
         src_padding_mask = src_padding_mask.to(dtype=torch.bool)
-        src_select = remove_redudant(tokens["bert"])
-        src_mask = get_src_mask(src_select)
+        src_local_padding = src_local == 0
+        src_mask = get_src_mask(src_local)
 
         # ESSENTIAL：ged模型的indexer将$START拆成了两个token：$和START。在embedder之后只保留了其中一个的结果
         # 这导致ged output和tokens['bert']的seq_len不一 样，后者多2（两个$）
@@ -139,20 +145,20 @@ class Seq2Seq(Model):
             ged_output = self.ged_model(tokens)["class_probabilities_labels"]
             ged_output = torch.argmax(ged_output, dim=2)
         encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
-        encoded_text = self.gec_encoder(src_select, src_mask, src_padding_mask)
+        encoded_text = self.gec_encoder(src_local, src_mask, src_local_padding)
 
         if labels is not None:
             tgt_padding_mask = 1 - get_text_field_mask(labels)
             tgt_padding_mask = tgt_padding_mask.to(dtype=torch.bool)
-            tgt_select = remove_redudant(labels["bert"])
-            tgt_mask = get_tgt_mask(tgt_select)
+            tgt_local_padding = tgt_local == 0
+            tgt_mask = get_tgt_mask(tgt_local)
 
             batch_size, sequence_length, _ = encoded_text.size()
-            tgt_input = tgt_select[:, :-1]
+            tgt_input = tgt_local[:, :-1]
             tgt_input_mask = tgt_mask[:-1, :-1]
-            tgt_input_padding_mask = tgt_padding_mask[:, :-1]
-            tgt_output = tgt_select[:, 1:].contiguous()
-            tgt_output_padding_mask = tgt_padding_mask[:, 1:]
+            tgt_input_padding_mask = tgt_local_padding[:, :-1]
+            tgt_output = tgt_local[:, 1:].contiguous()
+            tgt_output_padding_mask = tgt_local_padding[:, 1:]
 
             tgt_attn = self.self_attn(tgt_input, tgt_input_mask, tgt_input_padding_mask)
             decoded_ged_res = self.ged_decoder(tgt_attn, encoded_ged_res, tgt_input_mask, tgt_input_padding_mask)
@@ -182,19 +188,19 @@ class Seq2Seq(Model):
         return output_dict 
 
     @overrides
-    def decode(self, tokens: Dict[str, torch.Tensor]):
+    def decode(self, tokens: Dict[str, torch.Tensor], src_local: torch.LongTensor):
        
         src_padding_mask = 1 - get_text_field_mask(tokens)
         src_padding_mask = src_padding_mask.to(dtype=torch.bool)
-        src_select = remove_redudant(tokens["bert"])
-        src_mask = get_src_mask(src_select)
+        src_local_padding = src_local == 0
+        src_mask = get_src_mask(src_local)
 
         with torch.no_grad():
             ged_output = self.ged_model(tokens)["class_probabilities_labels"]
             ged_output = torch.argmax(ged_output, dim=2)
 
             encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
-            encoded_text = self.gec_encoder(src_select, src_mask, src_padding_mask)
+            encoded_text = self.gec_encoder(src_local, src_mask, src_local_padding)
             
             batch_size, sequence_length, _ = encoded_text.size()
 
@@ -215,12 +221,12 @@ class Seq2Seq(Model):
                     final_res = alpha * decoded_text + (1 - alpha) * decoded_ged_res
                     cur_logits = self.generator(final_res[:, -1:, :])
                     next_word = torch.argmax(cur_logits, dim=2)[0][0]
-                    cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src_select.data).fill_(next_word)], dim=1)
+                    cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src_local.data).fill_(next_word)], dim=1)
                     if next_word == self.stop_id:
                         break
                     
                 cur_tgt = cur_tgt.cpu().tolist()[0]
-                decoded_sent = [self.vocab_list[i] for i in cur_tgt]
+                decoded_sent = [self.id_to_vocab[i] for i in cur_tgt]
                 ids.append(cur_tgt)
                 words.append(decoded_sent)
 
