@@ -74,8 +74,8 @@ class Seq2Seq(Model):
 
         self.id_to_vocab = dict(zip(local_vocab.values(), local_vocab.keys()))
 
-        self.start_id = self.local_vocab['start']
-        self.stop_id = self.local_vocab['stop']
+        self.start_id = self.local_vocab[START_TOKEN]
+        self.stop_id = self.local_vocab[STOP_TOKEN]
 
         self._verbose_metrics = verbose_metrics
         self.ged_encoder = AttentionalEncoder(self.ged_model.num_labels_classes,
