@@ -1,31 +1,6 @@
 import math
 import torch
 import torch.nn as nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
-from allennlp.nn import util
-
-
-def get_tgt_mask(tar: torch.Tensor):
-    seq_len = tar.shape[1]
-    mask = (torch.triu(torch.ones((seq_len, seq_len), device=tar.device)) == 1).transpose(0, 1)
-    mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
-    return mask
-
-
-def get_src_mask(tar: torch.Tensor):
-    seq_len = tar.shape[1]
-    mask = torch.zeros((seq_len, seq_len),device=tar.device).type(torch.bool)
-    return mask
-
-
-def remove_redudant(tokens: torch.Tensor):
-    cur_tokens = torch.reshape(tokens, (-1,))
-    tar_index = cur_tokens[0].data
-    cur_mask = (cur_tokens != tar_index)
-    cur_tokens = torch.masked_select(cur_tokens, cur_mask)
-    cur_tokens = torch.reshape(cur_tokens, (tokens.shape[0], tokens.shape[1]-2))
-    return cur_tokens
 
 
 class PositionalEncoding(nn.Module):

@@ -14,7 +14,7 @@ from allennlp.training.metrics import CategoricalAccuracy
 from overrides import overrides
 
 from utils.helpers import START_TOKEN, STOP_TOKEN, PAD
-from seq2seq.modules import get_src_mask, get_tgt_mask, remove_redudant
+from seq2seq.utils import get_src_mask, get_tgt_mask, remove_redudant
 from seq2seq.modules import AttentionalEncoder, SelfAttentionLayer, AttentionalDecoder, LinearLayer
 
 @Model.register("seq2seq")
@@ -53,7 +53,7 @@ class Seq2Seq(Model):
 
     def __init__(self, ged_model: Model,
                  vocab: Vocabulary,
-                 vocab_to_id: Dict,
+                 vocab_list: List,
                  labels_namespace: str = "labels",
                  verbose_metrics: bool = False,
                  label_smoothing: float = 0.0,
@@ -66,17 +66,13 @@ class Seq2Seq(Model):
         self.ged_model = ged_model
 
         self.label_namespaces = [labels_namespace]
-        self.num_labels_classes = len(vocab_to_id)
+        self.num_labels_classes = len(vocab_list)
         self.label_smoothing = label_smoothing
         self.max_seq_len = max_seq_len
         self.hidden_size = hidden_size
 
-        self.vocab_to_id = vocab_to_id
-        self.id_to_vocab = {}
-        for k, v in vocab_to_id.items():
-            self.id_to_vocab[v] = k
-        self.start_id = self.vocab_to_id['start']
-        self.stop_id = self.vocab_to_id['stop']
+        self.start_id = self.vocab_list.index('start')
+        self.stop_id = self.vocab_list.index('stop')
 
         self._verbose_metrics = verbose_metrics
         self.ged_encoder = AttentionalEncoder(self.ged_model.num_labels_classes,
@@ -224,7 +220,7 @@ class Seq2Seq(Model):
                         break
                     
                 cur_tgt = cur_tgt.cpu().tolist()[0]
-                decoded_sent = [self.id_to_vocab[i] for i in cur_tgt]
+                decoded_sent = [self.vocab_list[i] for i in cur_tgt]
                 ids.append(cur_tgt)
                 words.append(decoded_sent)
 

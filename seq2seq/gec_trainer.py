@@ -647,7 +647,8 @@ class Trainer(TrainerBase):
             if self._momentum_scheduler:
                 self._momentum_scheduler.step(this_epoch_val_metric, epoch)
 
-            self._save_checkpoint(epoch)
+            if epoch % 10 == 0:
+                self._save_checkpoint(epoch)
 
             epoch_elapsed_time = time.time() - epoch_start_time
             logger.info("Epoch duration: %s", datetime.timedelta(seconds=epoch_elapsed_time))
