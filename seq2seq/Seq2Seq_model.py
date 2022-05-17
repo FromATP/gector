@@ -14,7 +14,7 @@ from allennlp.training.metrics import CategoricalAccuracy
 from overrides import overrides
 
 from utils.helpers import START_TOKEN, STOP_TOKEN, PAD
-from seq2seq.utils import get_src_mask, get_tgt_mask, remove_redudant
+from seq2seq.utils import get_src_mask, get_tgt_mask
 from seq2seq.modules import AttentionalEncoder, SelfAttentionLayer, AttentionalDecoder, LinearLayer
 
 @Model.register("seq2seq")

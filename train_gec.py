@@ -16,7 +16,7 @@ from utils.helpers import get_weights_name
 from seq2seq.Seq2Seq_model import Seq2Seq
 from seq2seq.gec_trainer import Trainer
 from seq2seq.reader import Seq2SeqDataReader
-from seq2seq.utils import get_smaller_vocab
+from seq2seq.utils import preload_vocab
  
 def get_embbeder(weigths_name, special_tokens_fix, take_grad=False):
     embedders = {'bert': PretrainedBertEmbedder(
@@ -106,6 +106,9 @@ def main(args):
                                   sorting_keys=[("tokens", "num_tokens")], 
                                   instances_per_epoch=None)
     val_iterator.index_with(gec_vocab)
+
+    preload_vocab(iterator, train_dataset)
+    preload_vocab(val_iterator, dev_dataset)
 
     local_vocab = reader._private_vocab
     vocab_path = Path(args.gec_model_dir) / 'vocabulary'
