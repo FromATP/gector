@@ -154,6 +154,11 @@ def main(args):
     print("Start GEC training")
     trainer.train()
 
+    out_model = os.path.join(args.gec_model_dir, 'model.th')
+    with open(out_model, 'wb') as f:
+        torch.save(gec_model.state_dict(), f)
+    print("Model is dumped")
+
 
 if __name__ == '__main__':
     # read parameters
