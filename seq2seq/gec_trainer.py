@@ -268,7 +268,7 @@ class Trainer(TrainerBase):
     def rescale_gradients(self) -> Optional[float]:
         return training_util.rescale_gradients(self.model, self._grad_norm)
 
-    def batch_loss(self, batch_group: List[TensorDict], for_training: bool) -> torch.Tensor:
+    def batch_loss(self, batch_group: List[TensorDict], for_training: bool, batch_num: int=None) -> torch.Tensor:
         """
         Does a forward pass on the given batches and returns the ``loss`` value in the result.
         If ``for_training`` is `True` also applies regularization penalty.
@@ -280,9 +280,16 @@ class Trainer(TrainerBase):
             batch = batch_group[0]
             batch = nn_util.move_to_device(batch, self._cuda_devices[0])
             output_dict = self.model(**batch)
+            
+            if batch_num == 1:
+                cur_path = os.path.join(self._serialization_dir, "training_results.txt")
+                with open(cur_path, "a", encoding="utf-8") as outputfd:
+                    outputfd.write(str(output_dict["words"]) + "\n")
+                    outputfd.write(str(output_dict["sents"]) + "\n\n")
+            
             # output = self.model.decode(batch["tokens"], batch["src_local"])
             # this decode can get decoded sentence ids
-
+        
         try:
             loss = output_dict["loss"]
             if for_training:
@@ -295,7 +302,7 @@ class Trainer(TrainerBase):
                 )
             loss = None
 
-        return loss
+        return loss, output_dict["alpha"]
 
     def _train_epoch(self, epoch: int) -> Dict[str, float]:
         """
@@ -335,7 +342,7 @@ class Trainer(TrainerBase):
         self.optimizer.zero_grad()
 
         with Tqdm.tqdm(train_generator, total=num_training_batches, ncols=75) as train_generator_tqdm:
-            for batch_group in train_generator_tqdm:
+            for i, batch_group in enumerate(train_generator_tqdm):
                 batches_this_epoch += 1
                 self._batch_num_total += 1
                 batch_num_total = self._batch_num_total
@@ -347,7 +354,7 @@ class Trainer(TrainerBase):
                     print(f'Before forward pass - Cuda memory allocated: {torch.cuda.memory_allocated() / 1e9}')
                     print(f'Before forward pass - Cuda memory cached: {torch.cuda.memory_cached() / 1e9}')
                 try:
-                    loss = self.batch_loss(batch_group, for_training=True)
+                    loss, alpha = self.batch_loss(batch_group, for_training=True, batch_num=batches_this_epoch)
                     loss = loss / iter_len
                 except RuntimeError as e:
                     print(e)
@@ -418,12 +425,13 @@ class Trainer(TrainerBase):
                 description = training_util.description_from_metrics(metrics)
 
                 train_generator_tqdm.set_description(description, refresh=False)
+                my_lr = [group['lr'] for group in self.optimizer.param_groups]
+                train_generator_tqdm.set_postfix(lr=my_lr[0], alpha=alpha)
 
                 # Log parameter values to Tensorboard
                 if self._tensorboard.should_log_this_batch():
-                    self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
+                    # self._tensorboard.log_parameter_and_gradient_statistics(self.model, batch_grad_norm)
                     self._tensorboard.log_learning_rates(self.model, self.optimizer)
-
                     self._tensorboard.add_train_scalar("loss/loss_train", metrics["loss"])
                     self._tensorboard.log_metrics({"epoch_metrics/" + k: v for k, v in metrics.items()})
 
@@ -495,7 +503,7 @@ class Trainer(TrainerBase):
                 
                 batch_num_total += 1
                 try:
-                    loss = self.batch_loss(batch_group, for_training=False)
+                    loss, alpha = self.batch_loss(batch_group, for_training=False)
                 except RuntimeError as e:
                     print(e)
                     raise e
@@ -519,8 +527,8 @@ class Trainer(TrainerBase):
         assert decode_res_path.exists(), "serialization path does not exist!"
         decode_res_path = decode_res_path / 'val_result'
         decode_res_path.mkdir(exist_ok=True, parents=True)
-        decode_res_path = decode_res_path / f'{epoch}_val.txt'
-        with open(decode_res_path, "w", encoding="utf-8") as outputfd:
+        decode_res_path = decode_res_path / f'{epoch // 10}_val.txt'
+        with open(decode_res_path, "a", encoding="utf-8") as outputfd:
             outputfd.write("original batch:\n")
             outputfd.write(str(output_batch))
             outputfd.write("\n\ndecoded_results:\n")
@@ -647,7 +655,7 @@ class Trainer(TrainerBase):
             if self._momentum_scheduler:
                 self._momentum_scheduler.step(this_epoch_val_metric, epoch)
 
-            if epoch % 10 == 0:
+            if epoch % 100 == 0:
                 self._save_checkpoint(epoch)
 
             epoch_elapsed_time = time.time() - epoch_start_time
@@ -665,7 +673,7 @@ class Trainer(TrainerBase):
 
         # make sure pending events are flushed to disk and files are closed properly
         # self._tensorboard.close()
-
+        
         # Load the best model state before returning
         best_model_state = self._checkpointer.best_model_state()
         if best_model_state:

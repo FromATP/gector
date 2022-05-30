@@ -126,7 +126,7 @@ def main(args):
 
     optimizer = torch.optim.Adam(gec_model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, factor=0.1, patience=10)
+        optimizer, factor=0.1, patience=5)
 
     if torch.cuda.is_available():
         if torch.cuda.device_count() > 1:
@@ -153,12 +153,13 @@ def main(args):
                       cold_lr=args.cold_lr)
     print("Start GEC training")
     trainer.train()
-
+    
+    # Here's how to save the model.
     out_model = os.path.join(args.gec_model_dir, 'model.th')
     with open(out_model, 'wb') as f:
         torch.save(gec_model.state_dict(), f)
     print("Model is dumped")
-
+    
 
 if __name__ == '__main__':
     # read parameters
@@ -219,7 +220,7 @@ if __name__ == '__main__':
                         type=int,
                         help='The number of epoch with any improvements'
                              ' on validation set.',
-                        default=3)
+                        default=None)
     parser.add_argument('--label_smoothing',
                         type=float,
                         help='The value of parameter alpha for label smoothing.',
@@ -227,7 +228,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_epoch',
                         type=int,
                         help='The number of epoch for training model.',
-                        default=20)
+                        default=501)
     parser.add_argument('--accumulation_size',
                         type=int,
                         help='How many batches do you want accumulate.',

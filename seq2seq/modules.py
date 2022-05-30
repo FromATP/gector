@@ -30,7 +30,7 @@ class AttentionalEncoder(nn.Module):
         self.embedding_layer = nn.Embedding(dict_size, output_dim, padding_idx=padding_idx)
         self.pos_encoder = PositionalEncoding(output_dim, dropout=0.5)
         self.encoder_layer = nn.TransformerEncoderLayer(d_model=output_dim, nhead=8, batch_first=True)
-        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=4)
+        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=2)
 
     def forward(self, tokens: torch.LongTensor, mask: torch.Tensor, padding_mask: torch.Tensor=None):
         word_rep = self.embedding_layer(tokens)
@@ -62,7 +62,7 @@ class AttentionalDecoder(nn.Module):
     def __init__(self, output_dim:int):
         super(AttentionalDecoder, self).__init__()
         self.decoder_layer = nn.TransformerDecoderLayer(d_model=output_dim, nhead=8, batch_first=True)
-        self.transformer_decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=4)
+        self.transformer_decoder = nn.TransformerDecoder(self.decoder_layer, num_layers=2)
     
     def forward(self, word_rep: torch.Tensor, memory: torch.Tensor, mask: torch.Tensor, padding_mask: torch.Tensor=None):
         outputs = self.transformer_decoder(word_rep, memory, 
