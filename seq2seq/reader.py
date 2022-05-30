@@ -57,6 +57,9 @@ class Seq2SeqDataReader(DatasetReader):
         self._private_vocab = {' ': 0, 'start': 1, 'stop': 2, START_TOKEN: 3, STOP_TOKEN: 4}
         self._private_vocab_cnt = 4
 
+        self._d_vocab = {' ': 0, '$KEEP': 1, '$REPLACE': 2, '$DELETE': 2, '$APPEND': 2}
+        self._label_vocab = {' ': 0, '$KEEP': 1, '$REPLACE': 2, '$DELETE': 3, '$APPEND': 4}
+
     @overrides
     def _read(self, file_path):
         # if `file_path` is a URL, redirect to the cache
@@ -70,9 +73,15 @@ class Seq2SeqDataReader(DatasetReader):
                                 and self.BROKEN_SENTENCES_REGEXP.search(line) is not None):
                     continue
 
-                src, tgt = line.split(self._delimeters["sents"])
-                src = src.split(self._delimeters["tokens"])
-                tgt = tgt.split(self._delimeters["tokens"])
+                try:
+                    src, tgt, label = line.split(self._delimeters["sents"])
+                    src = src.split(self._delimeters["tokens"])
+                    tgt = tgt.split(self._delimeters["tokens"])
+                    label = label.split(self._delimeters["tokens"])
+                except ValueError:
+                    src = line.split(self._delimeters["sents"])[0]
+                    tgt = None
+                    label = None
                 
                 try:
                     src_tokens = [Token(token) for token in src]
@@ -103,22 +112,35 @@ class Seq2SeqDataReader(DatasetReader):
                     tgt_tokens = tgt_tokens + [Token(STOP_TOKEN)]
 
                 src_words = [x.text for x in src_tokens]
-                tgt_words = [x.text for x in tgt_tokens]
+                if tgt_tokens:
+                    tgt_words = [x.text for x in tgt_tokens]
+                else:
+                    tgt_words = None
+
                 src_local = np.array([self._private_vocab[x] for x in src])
-                tgt_local = np.array([self._private_vocab[x] for x in tgt])
+                if tgt:
+                    tgt_local = np.array([self._private_vocab[x] for x in tgt])
+                else:
+                    tgt_local = None
+
+                if label:
+                    src_label = np.array([self._label_vocab[x] for x in label])
+                else:
+                    src_label = None
+
                 if self._max_len is not None:
                     src_tokens = src_tokens[:self._max_len]
                     tgt_tokens = None if tgt_tokens is None else tgt_tokens[:self._max_len]
                 instance = self.text_to_instance(src_tokens, tgt_tokens,
                                                     src_words, tgt_words,
-                                                    src_local, tgt_local)
+                                                    src_local, tgt_local, src_label)
                 if instance:
                     yield instance
 
 
     def text_to_instance(self, src_tokens: List[Token], tgt_tokens: List[Token],
                          src_words: List[str] = None, tgt_words: List[str] = None,
-                         src_local=None, tgt_local=None) -> Instance:  # type: ignore
+                         src_local=None, tgt_local=None, src_label=None) -> Instance:  # type: ignore
         """
         We take `pre-tokenized` input here, because we don't have a tokenizer in this class.
         """
@@ -129,6 +151,7 @@ class Seq2SeqDataReader(DatasetReader):
         fields["tokens"] = src_sequence
         fields["src_metadata"] = MetadataField({"words": src_words})
         fields["src_local"] = ArrayField(src_local, dtype = src_local.dtype)
+        fields["src_label"] = ArrayField(src_label, dtype = src_label.dtype)
 
         tgt_sequence = TextField(tgt_tokens, self._token_indexers)
         fields["labels"] = tgt_sequence

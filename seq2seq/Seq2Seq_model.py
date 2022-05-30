@@ -63,8 +63,6 @@ class Seq2Seq(Model):
                  regularizer: Optional[RegularizerApplicator] = None) -> None:
         super(Seq2Seq, self).__init__(vocab, regularizer)
 
-        self.ged_model = ged_model
-
         self.label_namespaces = [labels_namespace]
         self.num_labels_classes = len(local_vocab)
         self.label_smoothing = label_smoothing
@@ -78,8 +76,7 @@ class Seq2Seq(Model):
         self.stop_id = self.local_vocab[STOP_TOKEN]
 
         self._verbose_metrics = verbose_metrics
-        self.ged_encoder = AttentionalEncoder(self.ged_model.num_labels_classes,
-                                                self.hidden_size)
+        self.ged_encoder = AttentionalEncoder(5, self.hidden_size)
         self.gec_encoder = AttentionalEncoder(self.num_labels_classes,
                                                 self.hidden_size)
         self.self_attn = SelfAttentionLayer(self.num_labels_classes,
@@ -101,7 +98,8 @@ class Seq2Seq(Model):
                 src_metadata: List[Dict[str, Any]] = None,
                 tgt_metadata: List[Dict[str, Any]] = None,
                 src_local:torch.LongTensor = None,
-                tgt_local:torch.LongTensor = None) -> Dict[str, torch.Tensor]:
+                tgt_local:torch.LongTensor = None,
+                src_label:torch.LongTensor = None) -> Dict[str, torch.Tensor]:
         # pylint: disable=arguments-differ
         """
         Parameters
@@ -131,18 +129,14 @@ class Seq2Seq(Model):
             A scalar loss to be optimised.
 
         """
-        # ESSENTIAL: pytorch transformer的padding mask是“true表示ignore”，与get_text_field_mask的意义相反
-        src_padding_mask = 1 - get_text_field_mask(tokens)
-        src_padding_mask = src_padding_mask.to(dtype=torch.bool)
         src_local_padding = src_local == 0
         src_mask = get_src_mask(src_local)
 
-        with torch.no_grad():
-            ged_output = self.ged_model(tokens)["class_probabilities_labels"]
-            # ged_output = self.ged_model(tokens)["class_probabilities_d_tags"]
-            ged_output = torch.argmax(ged_output, dim=2)
+        ged_output = src_label
+        src_label_padding = src_label == 0
+        src_label_mask = get_src_mask(src_label)
             
-        encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
+        encoded_ged_res = self.ged_encoder(ged_output, src_label_mask, src_label_padding)
         encoded_text = self.gec_encoder(src_local, src_mask, src_local_padding)
         # print(torch.mean(encoded_ged_res))
         # print(torch.mean(encoded_text))
@@ -204,19 +198,19 @@ class Seq2Seq(Model):
         return output_dict 
 
     @overrides
-    def decode(self, tokens: Dict[str, torch.Tensor], src_local: torch.LongTensor):
+    def decode(self, tokens: Dict[str, torch.Tensor], src_local: torch.LongTensor, src_label: torch.LongTensor):
        
-        src_padding_mask = 1 - get_text_field_mask(tokens)
-        src_padding_mask = src_padding_mask.to(dtype=torch.bool)
         src_local_padding = src_local == 0
         src_mask = get_src_mask(src_local)
 
-        with torch.no_grad():
-            ged_output = self.ged_model(tokens)["class_probabilities_labels"]
-            # ged_output = self.ged_model(tokens)["class_probabilities_d_tags"]
-            ged_output = torch.argmax(ged_output, dim=2)
+        ged_output = src_label
+        src_label_padding = src_label == 0
+        src_label_mask = get_src_mask(src_label)
 
-            encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
+
+        with torch.no_grad():
+
+            encoded_ged_res = self.ged_encoder(ged_output, src_label_mask, src_label_padding)
             encoded_text = self.gec_encoder(src_local, src_mask, src_local_padding)
             
             batch_size, sequence_length, _ = encoded_text.size()
