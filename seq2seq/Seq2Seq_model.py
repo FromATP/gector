@@ -86,11 +86,11 @@ class Seq2Seq(Model):
                                                 self.hidden_size)
         self.ged_decoder = AttentionalDecoder(self.hidden_size)
         self.gec_decoder = AttentionalDecoder(self.hidden_size)
-        self.param_learning_layer = TimeDistributed(torch.nn.Linear(2*self.hidden_size, hidden_size))
         self.generator = LinearLayer(self.hidden_size, self.num_labels_classes)
 
         self.metrics = {"accuracy": CategoricalAccuracy()}
-
+        self.alpha=0.8
+        
         initializer(self)
 
 
@@ -137,14 +137,16 @@ class Seq2Seq(Model):
         src_local_padding = src_local == 0
         src_mask = get_src_mask(src_local)
 
-        # ESSENTIAL：ged模型的indexer将$START拆成了两个token：$和START。在embedder之后只保留了其中一个的结果
-        # 这导致ged output和tokens['bert']的seq_len不一 样，后者多2（两个$）
-        # 按照逻辑，在做gec任务的时候只需要保留start和stop，把$去掉。
         with torch.no_grad():
             ged_output = self.ged_model(tokens)["class_probabilities_labels"]
+            # ged_output = self.ged_model(tokens)["class_probabilities_d_tags"]
             ged_output = torch.argmax(ged_output, dim=2)
+            
         encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
         encoded_text = self.gec_encoder(src_local, src_mask, src_local_padding)
+        # print(torch.mean(encoded_ged_res))
+        # print(torch.mean(encoded_text))
+        # print("===")
 
         if labels is not None:
             tgt_padding_mask = 1 - get_text_field_mask(labels)
@@ -158,27 +160,42 @@ class Seq2Seq(Model):
             tgt_input_padding_mask = tgt_local_padding[:, :-1]
             tgt_output = tgt_local[:, 1:].contiguous()
             tgt_output_padding_mask = tgt_local_padding[:, 1:]
-
+            
             tgt_attn = self.self_attn(tgt_input, tgt_input_mask, tgt_input_padding_mask)
             decoded_ged_res = self.ged_decoder(tgt_attn, encoded_ged_res, tgt_input_mask, tgt_input_padding_mask)
             decoded_text = self.gec_decoder(tgt_attn, encoded_text, tgt_input_mask, tgt_input_padding_mask)
 
             concat_res = torch.cat([decoded_text, decoded_ged_res], dim=2)
-            alpha = F.sigmoid(self.param_learning_layer(concat_res))
-            # print(alpha)
-            final_res = alpha * decoded_text + (1 - alpha) * decoded_ged_res
+            final_res = self.alpha * decoded_text + (1 - self.alpha) * decoded_ged_res
+            
+            # final_res = decoded_text
             output_logits = self.generator(final_res)
 
             output_prob = F.softmax(output_logits, dim=-1)
-
+            
             output_dict = {"logits": output_logits,
-                        "probabilities": output_prob}
+                        "probabilities": output_prob,
+                        "alpha": self.alpha}
+            
             loss = sequence_cross_entropy_with_logits(output_logits, tgt_output, ~tgt_output_padding_mask,
                                                         label_smoothing=self.label_smoothing)
             
             for metric in self.metrics.values():
                 metric(output_logits, tgt_output, tgt_output_padding_mask.float())
+            
             output_dict["loss"] = loss
+            
+            output_words = torch.argmax(output_prob, dim=-1)
+            sents=[]
+            batch_size, seq_len = output_words.shape
+            for i in range(batch_size):
+                sent = []
+                for j in range(seq_len):
+                    sent.append(self.id_to_vocab[int(output_words[i][j])])
+                sents.append(sent)
+                
+            output_dict["ids"] = output_words
+            output_dict["sents"] = sents
         
         if src_metadata is not None:
             output_dict["words"] = [x["words"] for x in src_metadata]
@@ -196,6 +213,7 @@ class Seq2Seq(Model):
 
         with torch.no_grad():
             ged_output = self.ged_model(tokens)["class_probabilities_labels"]
+            # ged_output = self.ged_model(tokens)["class_probabilities_d_tags"]
             ged_output = torch.argmax(ged_output, dim=2)
 
             encoded_ged_res = self.ged_encoder(ged_output, src_mask, src_padding_mask)
@@ -216,8 +234,7 @@ class Seq2Seq(Model):
                     decoded_text = self.gec_decoder(tgt_attn, cur_text, cur_tgt_mask)
                     
                     concat_res = torch.cat([decoded_text, decoded_ged_res], dim=2)
-                    alpha = F.sigmoid(self.param_learning_layer(concat_res))
-                    final_res = alpha * decoded_text + (1 - alpha) * decoded_ged_res
+                    final_res = self.alpha * decoded_text + (1 - self.alpha) * decoded_ged_res
                     cur_logits = self.generator(final_res[:, -1:, :])
                     next_word = torch.argmax(cur_logits, dim=2)[0][0]
                     cur_tgt = torch.cat([cur_tgt, torch.ones(1, 1).type_as(src_local.data).fill_(next_word)], dim=1)
